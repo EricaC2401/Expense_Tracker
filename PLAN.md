@@ -30,10 +30,10 @@ Detailed setup and usage instructions should live in `README.md`.
 
 ## Current status
 
-Current milestone: M1 Supabase database setup
+Current milestone: M2 Data validation and models
 
 - M0 Project setup: Completed
-- M1 Supabase database setup: Not started
+- M1 Supabase database setup: Completed
 - M2 Data validation and models: Not started
 - M3 Basic categories: Not started
 - M4 Database functions: Not started
