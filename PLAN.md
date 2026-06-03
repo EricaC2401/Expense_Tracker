@@ -30,7 +30,7 @@ Detailed setup and usage instructions should live in `README.md`.
 
 ## Current status
 
-Current milestone: M6 Transaction table view
+Current milestone: M7 CSV export backup
 
 - M0 Project setup: Completed
 - M1 Supabase database setup: Completed
@@ -38,7 +38,7 @@ Current milestone: M6 Transaction table view
 - M3 Basic categories: Completed
 - M4 Database functions: Completed
 - M5 Manual transaction entry: Completed
-- M6 Transaction table view: Not started
+- M6 Transaction table view: Completed
 - M7 CSV export backup: Not started
 - M8 Edit and delete transactions: Not started
 - M9 CSV import: Not started

@@ -16,6 +16,7 @@ try:
         insert_transaction,
         test_connection,
     )
+    from src.export_csv import build_export_filename, export_transactions_to_csv
     from src.models import ValidationError, validate_expense_transaction
 except ModuleNotFoundError:  # pragma: no cover - used when Streamlit runs src/app.py directly
     from categorisation import get_default_categories
@@ -26,6 +27,7 @@ except ModuleNotFoundError:  # pragma: no cover - used when Streamlit runs src/a
         insert_transaction,
         test_connection,
     )
+    from export_csv import build_export_filename, export_transactions_to_csv
     from models import ValidationError, validate_expense_transaction
 
 
@@ -205,6 +207,31 @@ def render_transaction_table() -> None:
     )
 
 
+def render_export_section() -> None:
+    """Render the CSV backup download section."""
+
+    st.subheader("CSV Backup")
+    st.caption("Download a full CSV backup before edit and delete features are introduced.")
+
+    try:
+        transactions = fetch_transactions()
+    except DatabaseConnectionError as exc:
+        st.error(str(exc))
+        return
+
+    if not transactions:
+        st.info("Save at least one expense before exporting a backup.")
+        return
+
+    st.download_button(
+        "Download CSV Backup",
+        data=export_transactions_to_csv(transactions),
+        file_name=build_export_filename(),
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+
 def main() -> None:
     """Run the Streamlit expense tracker app."""
 
@@ -224,6 +251,8 @@ def main() -> None:
     render_manual_entry_form()
     st.divider()
     render_transaction_table()
+    st.divider()
+    render_export_section()
 
 
 if __name__ == "__main__":

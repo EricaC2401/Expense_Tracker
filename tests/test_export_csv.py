@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from datetime import date, datetime
+from decimal import Decimal
+
+from src.db import StoredExpenseTransaction
+from src.export_csv import build_export_filename, export_transactions_to_csv
+
+
+def make_transaction() -> StoredExpenseTransaction:
+    return StoredExpenseTransaction(
+        id=11,
+        transaction_date=date(2026, 6, 3),
+        description="Lunch",
+        category="Uncategorised",
+        amount_gbp=Decimal("12.50"),
+        expense_hkd=Decimal("125.00"),
+        tax_deductable=True,
+        cash=False,
+        notes="Quick meal",
+        created_at=datetime(2026, 6, 3, 12, 0, 0),
+        updated_at=datetime(2026, 6, 3, 12, 30, 0),
+    )
+
+
+def test_build_export_filename_uses_expected_format() -> None:
+    assert build_export_filename(date(2026, 6, 3)) == "expense_tracker_backup_2026-06-03.csv"
+
+
+def test_export_transactions_to_csv_includes_all_key_fields() -> None:
+    csv_text = export_transactions_to_csv([make_transaction()])
+
+    lines = csv_text.strip().splitlines()
+    assert lines[0] == (
+        "id,transaction_date,description,category,amount_gbp,expense_hkd,"
+        "tax_deductable,cash,notes,created_at,updated_at"
+    )
+    assert "11,2026-06-03,Lunch,Uncategorised,12.50,125.00,true,false,Quick meal," in lines[1]
