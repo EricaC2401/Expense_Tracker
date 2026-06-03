@@ -30,13 +30,13 @@ Detailed setup and usage instructions should live in `README.md`.
 
 ## Current status
 
-Current milestone: M3 Basic categories
+Current milestone: M5 Manual transaction entry
 
 - M0 Project setup: Completed
 - M1 Supabase database setup: Completed
 - M2 Data validation and models: Completed
-- M3 Basic categories: Not started
-- M4 Database functions: Not started
+- M3 Basic categories: Completed
+- M4 Database functions: Completed
 - M5 Manual transaction entry: Not started
 - M6 Transaction table view: Not started
 - M7 CSV export backup: Not started

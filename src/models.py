@@ -7,7 +7,10 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from src.categorisation import normalize_category
+try:
+    from src.categorisation import normalize_category
+except ModuleNotFoundError:  # pragma: no cover - used when src modules are run directly
+    from categorisation import normalize_category
 
 
 class ValidationError(ValueError):
