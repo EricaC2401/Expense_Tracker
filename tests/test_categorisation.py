@@ -43,6 +43,7 @@ def test_get_keyword_category_rules_includes_expected_examples() -> None:
     assert "tesco" in rules["Groceries"]
     assert "veg" in rules["Food"]
     assert "towel" in rules["C Groceries"]
+    assert "diesel" in rules["Car Related"]
     assert "uber" in rules["Transport"]
 
 
@@ -52,6 +53,7 @@ def test_suggest_category_matches_keywords_case_insensitively() -> None:
     assert suggest_category("Tesco veg and pork") == "Food"
     assert suggest_category("Waitrose kitchen towel and tissue") == "C Groceries"
     assert suggest_category("Toilet Roll") == "C Groceries"
+    assert suggest_category("Diesel refill") == "Car Related"
     assert suggest_category("Tesco Uber ride") == "Transport"
     assert suggest_category("M&S fruit and meat") == "Food"
     assert suggest_category("Uber airport ride") == "Transport"

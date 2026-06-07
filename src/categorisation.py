@@ -27,6 +27,7 @@ DEFAULT_CATEGORIES = (
 )
 
 KEYWORD_CATEGORY_RULES = (
+    ("Car Related", ("diesel",)),
     ("Transport", ("trainline", "uber", "bolt", "tfl", "tube", "bus", "train")),
     ("Subscriptions", ("netflix", "spotify", "voxi", "chatgpt", "icloud")),
     ("Shopping", ("amazon",)),

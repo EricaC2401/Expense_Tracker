@@ -30,7 +30,7 @@ Detailed setup and usage instructions should live in `README.md`.
 
 ## Current status
 
-Current milestone: M11 Keyword-based category rules
+Current milestone: M13 Deployment
 
 - M0 Project setup: Completed
 - M1 Supabase database setup: Completed
@@ -43,8 +43,8 @@ Current milestone: M11 Keyword-based category rules
 - M8 Edit and delete transactions: Completed
 - M9 CSV import: Completed
 - M10 Reports: Completed
-- M11 Keyword-based category rules: Not started
-- M12 Mobile-friendly quick-add page: Not started
+- M11 Keyword-based category rules: Completed
+- M12 Mobile-friendly quick-add page: Completed
 - M13 Deployment: Not started
 - M14 README and usage documentation: Not started
 

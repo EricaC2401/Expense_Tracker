@@ -9,6 +9,7 @@ import pytest
 
 from src.app import (
     _apply_pending_manual_entry_reset,
+    _handle_manual_description_change,
     _reset_manual_entry_state,
     build_expense_payload,
     get_manual_category_value,
@@ -77,6 +78,16 @@ def test_manual_entry_reset_is_deferred_until_next_rerun(monkeypatch: pytest.Mon
     assert st.session_state["manual_category"] == "Uncategorised"
     assert st.session_state["manual_category_overridden"] is False
     assert st.session_state["manual_entry_reset_pending"] is False
+
+
+def test_manual_description_change_clears_category_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    import streamlit as st
+
+    monkeypatch.setitem(st.session_state, "manual_category_overridden", True)
+
+    _handle_manual_description_change()
+
+    assert st.session_state["manual_category_overridden"] is False
 
 
 def test_app_imports_when_run_from_src_directory(

@@ -128,6 +128,12 @@ def _mark_manual_category_override() -> None:
     st.session_state["manual_category_overridden"] = True
 
 
+def _handle_manual_description_change() -> None:
+    """Allow a fresh category suggestion when the description changes."""
+
+    st.session_state["manual_category_overridden"] = False
+
+
 def _reset_manual_entry_state() -> None:
     """Queue a clean manual-entry reset for the next rerun."""
 
@@ -195,7 +201,11 @@ def render_manual_entry_form() -> None:
         st.session_state["manual_category"] = DEFAULT_CATEGORY
 
     transaction_date = st.date_input("Date", value=date.today(), key="manual_transaction_date")
-    description = st.text_input("Description", key="manual_description")
+    description = st.text_input(
+        "Description",
+        key="manual_description",
+        on_change=_handle_manual_description_change,
+    )
 
     visible_category, suggested_category = get_manual_category_value(
         description=description,
