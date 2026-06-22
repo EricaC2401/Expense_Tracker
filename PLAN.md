@@ -30,7 +30,7 @@ Detailed setup and usage instructions should live in `README.md`.
 
 ## Current status
 
-Current milestone: M13 Deployment
+Current milestone: Payment method enhancement (pre-M14)
 
 - M0 Project setup: Completed
 - M1 Supabase database setup: Completed
@@ -45,8 +45,13 @@ Current milestone: M13 Deployment
 - M10 Reports: Completed
 - M11 Keyword-based category rules: Completed
 - M12 Mobile-friendly quick-add page: Completed
-- M13 Deployment: Not started
-- M14 README and usage documentation: Not started
+- M13 Recurring monthly fixed expenses: Completed
+- Payment method enhancement (pre-M14): In progress
+- M17 Income page and income tracking: In progress (requested out of sequence, now includes recurring income templates and separate tax-due tracking)
+- M18 Overall dashboard: Not started
+- M14 Deployment: Not started
+- M15 README and usage documentation: Not started
+- M16 Finance situation balances and history: In progress (requested out of sequence)
 
 ## V1 scope
 
@@ -132,6 +137,12 @@ Rules:
 - `updated_at` should be maintained by a PostgreSQL trigger or explicit application logic. Prefer a trigger for V1.
 
 The exact PostgreSQL schema should be implemented in SQL migration files under `sql/`, not directly in this plan.
+
+Income/tax direction:
+
+- income is tracked separately from expenses
+- tax due is tracked separately on the Income page
+- actual tax paid remains in Expenses as cash-out records
 
 ## Target project structure
 
@@ -527,7 +538,37 @@ Make the app faster to use on iPhone.
 
 ---
 
-## M13 — Deployment
+## M13 — Recurring monthly fixed expenses
+
+### Goal
+
+Automate fixed monthly expenses without introducing paid background infrastructure.
+
+### Codex tasks
+
+- Add a recurring expense template model and validation.
+- Add database support for recurring templates and generated transaction tracking.
+- Prevent duplicate generation for the same template and month.
+- On app open, insert any due recurring expenses for the current month.
+- Add a simple Streamlit section to create, edit, pause, and review recurring templates.
+- Keep generated rows compatible with existing transaction views, reports, and CSV export.
+- Add or update tests for validation, generation, and app helpers.
+
+### Human tasks
+
+- Run the recurring expense SQL migration in Supabase before using the feature.
+
+### Done when
+
+- User can save recurring monthly expense templates.
+- Opening the app on or after the due day adds missing recurring expenses for the month.
+- Reopening the app does not create duplicate recurring entries.
+- Generated recurring expenses appear in the standard transaction table, reports, and CSV export.
+- Tests cover the recurring validation and generation flow.
+
+---
+
+## M14 — Deployment
 
 ### Goal
 
@@ -563,7 +604,7 @@ Streamlit Community Cloud free tier commonly uses public GitHub repositories. If
 
 ---
 
-## M14 — README and usage documentation
+## M15 — README and usage documentation
 
 ### Goal
 

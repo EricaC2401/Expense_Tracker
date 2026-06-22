@@ -13,10 +13,11 @@ def make_transaction() -> StoredExpenseTransaction:
         transaction_date=date(2026, 6, 3),
         description="Lunch",
         category="Uncategorised",
+        group_name="Living",
         amount_gbp=Decimal("12.50"),
-        expense_hkd=Decimal("125.00"),
+        amount_hkd=Decimal("125.00"),
         tax_deductable=True,
-        cash=False,
+        payment_method="Monzo",
         notes="Quick meal",
         created_at=datetime(2026, 6, 3, 12, 0, 0),
         updated_at=datetime(2026, 6, 3, 12, 30, 0),
@@ -32,7 +33,7 @@ def test_export_transactions_to_csv_includes_all_key_fields() -> None:
 
     lines = csv_text.strip().splitlines()
     assert lines[0] == (
-        "id,transaction_date,description,category,amount_gbp,expense_hkd,"
-        "tax_deductable,cash,notes,created_at,updated_at"
+        "id,transaction_date,description,category,group,amount_gbp,amount_hkd,"
+        "tax_deductable,payment_method,notes,created_at,updated_at"
     )
-    assert "11,2026-06-03,Lunch,Uncategorised,12.50,125.00,true,false,Quick meal," in lines[1]
+    assert "11,2026-06-03,Lunch,Uncategorised,Living,12.50,125.00,true,Monzo,Quick meal," in lines[1]
