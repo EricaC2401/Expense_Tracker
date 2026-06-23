@@ -16,7 +16,6 @@ from src.app import (
     _finance_snapshot_row_is_blank,
     build_finance_snapshot_rows,
     build_finance_snapshot_history_rows,
-    build_default_finance_snapshot_layout_rows,
     build_dashboard_expense_breakout_rows,
     collect_selected_finance_history_ids,
     convert_gbp_quote_rates_to_hkd_rates,
@@ -544,19 +543,6 @@ def test_finance_snapshot_row_is_blank_detects_empty_dynamic_rows() -> None:
             "Notes": "",
         }
     )
-
-
-def test_build_default_finance_snapshot_layout_rows_starts_with_zero_balances() -> None:
-    rows = build_default_finance_snapshot_layout_rows()
-
-    assert rows
-    assert rows[0]["Snapshot Date"] == date.today()
-    assert rows[0]["Last Updated"] == ""
-    assert rows[0]["Institution"] == "Barclays"
-    assert rows[0]["Balance"] == "26.62"
-    assert rows[5]["Balance"] == "135.21"
-    assert rows[6]["Balance"] == "-55.35"
-    assert all("ID" not in row for row in rows)
 
 
 def test_build_finance_snapshot_rows_uses_today_for_current_snapshot_date() -> None:

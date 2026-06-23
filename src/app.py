@@ -261,34 +261,6 @@ FINANCE_GRID_COLUMNS = (
     "Account Type",
     "Notes",
 )
-DEFAULT_FINANCE_SNAPSHOT_LAYOUT = (
-    ("Barclays", "Savings", "GBP", "26.62", "Savings", ""),
-    ("Barclays", "Cash ISA", "GBP", "0", "ISA", ""),
-    ("HSBC UK", "Savings", "GBP", "50", "Savings", ""),
-    ("HSBC UK", "Cash ISA", "GBP", "0", "ISA", ""),
-    ("Monzo", "Savings", "GBP", "207.35", "Savings", ""),
-    ("Monzo", "Current", "GBP", "135.21", "Current", ""),
-    ("Tesco Bank", "Credit Card", "GBP", "-55.35", "Liability", ""),
-    ("Moneybox", "Cash ISA", "GBP", "64775.18", "ISA", ""),
-    ("Moneybox", "LISA", "GBP", "9042.23", "ISA", ""),
-    ("Trading 212", "Stock ISA", "GBP", "100.55", "Investment", ""),
-    ("IBKR", "HKD", "HKD", "78151.42", "Investment", ""),
-    ("IBKR", "GBP", "GBP", "303.52", "Investment", ""),
-    ("Hangseng", "HKD Savings", "HKD", "359.21", "Savings", ""),
-    ("Hangseng", "I-HKD Saving", "HKD", "2359.35", "Savings", ""),
-    ("Hangseng", "Mum's Time D", "HKD", "388830", "Savings", ""),
-    ("Hangseng", "My Deposit", "HKD", "11170", "Savings", ""),
-    ("HSBC HK", "HKD", "HKD", "65466.04", "Savings", ""),
-    ("HSBC HK", "Gbond", "HKD", "30018.75", "Investment", ""),
-    ("HSBC HK", "GBP", "GBP", "490.37", "Savings", ""),
-    ("HSBC HK", "USD", "USD", "2038.26", "Savings", ""),
-    ("HSBC HK", "JPY", "JPY", "16894", "Savings", ""),
-    ("HSBC HK", "CAD", "CAD", "263.97", "Savings", ""),
-    ("HSBC HK", "EUR", "EUR", "128.71", "Savings", ""),
-    ("Wallet", "Cash", "HKD", "2000", "Cash", ""),
-    ("AIRTM", "USDC", "USD", "1373", "Digital", ""),
-    ("TopCashback", "Cashback", "GBP", "0", "Rewards", ""),
-)
 LINKED_PAYMENT_METHODS = {
     "Monzo Current": ("Monzo", "Current", "GBP"),
     "HSBC HK GBP": ("HSBC HK", "GBP", "GBP"),
@@ -2870,24 +2842,6 @@ def build_finance_snapshot_rows(
     return rows
 
 
-def build_default_finance_snapshot_layout_rows() -> list[dict[str, object]]:
-    """Return starter finance rows so recurring updates only need balance edits."""
-
-    return [
-        {
-            "Snapshot Date": date.today(),
-            "Last Updated": "",
-            "Institution": institution,
-            "Account": account,
-            "Currency": currency,
-            "Balance": format_finance_amount(balance),
-            "Account Type": account_type,
-            "Notes": notes,
-        }
-        for institution, account, currency, balance, account_type, notes in DEFAULT_FINANCE_SNAPSHOT_LAYOUT
-    ]
-
-
 def build_finance_snapshot_history_rows(
     entries: list[StoredFinanceSnapshotEntry],
 ) -> list[dict[str, object]]:
@@ -3223,17 +3177,14 @@ def render_finance_situation_section() -> None:
         return
 
     has_saved_rows = bool(latest_entries)
-    original_rows = (
-        build_finance_snapshot_rows(latest_entries)
-        if has_saved_rows
-        else build_default_finance_snapshot_layout_rows()
-    )
+    original_rows = build_finance_snapshot_rows(latest_entries) if has_saved_rows else []
     editor_df = pd.DataFrame(
         [{column: row[column] for column in FINANCE_GRID_COLUMNS} for row in original_rows],
         columns=FINANCE_GRID_COLUMNS,
     )
     if editor_df.empty:
         editor_df = pd.DataFrame(columns=FINANCE_GRID_COLUMNS)
+        st.info("No finance snapshot rows have been saved yet. Add your accounts here to create the first snapshot.")
 
     allow_structure_edit = (
         st.checkbox(
