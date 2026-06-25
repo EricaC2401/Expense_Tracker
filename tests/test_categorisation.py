@@ -23,6 +23,7 @@ def test_get_default_categories_includes_expected_values() -> None:
     assert "Car Related: Annual" in categories
     assert "Car Related: One-off" in categories
     assert "Car Related: Other" in categories
+    assert "Learning to Drive" in categories
     assert "LH" in categories
 
 
@@ -40,6 +41,7 @@ def test_get_category_color_uses_named_and_stable_fallback_colors() -> None:
     assert get_category_color("Food") == "#5E9B73"
     assert get_category_color("Subscription") == "#B07AA1"
     assert get_category_color("Car Related: Fuel") == "#B07AA1"
+    assert get_category_color("Learning to Drive") == "#B07AA1"
     assert get_category_color("  Custom Category  ") == get_category_color("Custom Category")
 
 

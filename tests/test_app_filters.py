@@ -251,6 +251,19 @@ def test_build_category_chart_df_adds_percentages_in_descending_order() -> None:
     assert chart_df["percentage_label"].tolist() == ["50.0%", "30.0%", "20.0%"]
 
 
+def test_build_category_chart_df_keeps_expected_columns_when_empty() -> None:
+    chart_df = build_category_chart_df(
+        [
+            {"category": "Drink", "amount_gbp": Decimal("0.00"), "amount_hkd": Decimal("0.00")},
+            {"category": "Food", "amount_gbp": Decimal("0.00"), "amount_hkd": Decimal("0.00")},
+        ],
+        amount_key="amount_hkd",
+    )
+
+    assert chart_df.empty
+    assert chart_df.columns.tolist() == ["category", "amount", "percentage", "percentage_label"]
+
+
 def test_build_pie_chart_df_keeps_all_rows() -> None:
     chart_df = build_category_chart_df(
         [
@@ -317,14 +330,15 @@ def test_build_update_payload_from_row_stays_valid_for_edited_row() -> None:
     assert str(transaction.amount_hkd) == "210.50"
 
 
-def test_invalid_edited_row_still_fails_validation() -> None:
+def test_negative_edited_row_stays_valid() -> None:
     row = build_editor_rows(
         [make_transaction(transaction_id=9, transaction_date=date(2026, 6, 3), category="Food")]
     )[0]
     row["Amount (GBP)"] = -1.0
 
-    with pytest.raises(ValidationError, match="amount_gbp must be zero or greater"):
-        validate_expense_transaction(build_update_payload_from_row(row))
+    transaction = validate_expense_transaction(build_update_payload_from_row(row))
+
+    assert transaction.amount_gbp == Decimal("-1.0")
 
 
 def test_collect_selected_transaction_ids_returns_only_selected_rows() -> None:

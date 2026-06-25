@@ -35,6 +35,17 @@ class ExpenseReportSummary:
 
 
 @dataclass(frozen=True)
+class ExpenseTaxSplitSummary:
+    """Split one expense slice into non-tax spending and tax-payment totals."""
+
+    expense_ex_tax_gbp: Decimal
+    expense_ex_tax_hkd: Decimal
+    tax_payments_gbp: Decimal
+    tax_payments_hkd: Decimal
+    transaction_count: int
+
+
+@dataclass(frozen=True)
 class FinanceBicurrencyTotals:
     """GBP/HKD-only converted totals with and without Mum's Time D."""
 
@@ -91,6 +102,9 @@ class OverallDashboardSummary:
     annualised_monthly_net_saving_gbp: Decimal | None
     total_tax_amount_gbp: Decimal
     net_saving_after_tax_amount_gbp: Decimal
+    cash_inflow_gbp: Decimal
+    cash_outflow_gbp: Decimal
+    net_cash_flow_gbp: Decimal
     expense_breakout: ExpenseBreakoutSummary
     finance_currency_summary: list[dict[str, Decimal | str]]
 
@@ -135,6 +149,7 @@ LIVING_CATEGORY_CLASSIFICATION_MAP = {
     "Gathering": "Social",
     "LH": "LH",
     "Subscriptions": "Subscriptions",
+    "Learning to Drive": "Other",
     "Healthcare": "Other",
 }
 
@@ -456,6 +471,26 @@ def build_overall_dashboard_summary(
         expenses,
         month_rates_by_month=expense_month_rates_by_month,
     )
+    cash_inflow_gbp = sum(
+        (
+            Decimal(income.gross_amount_gbp)
+            if income.gross_amount_gbp is not None
+            else Decimal(income.gross_amount)
+            for income in incomes
+        ),
+        Decimal("0.00"),
+    )
+    cash_outflow_gbp = sum(
+        (
+            build_expense_transaction_total_gbp(
+                transaction,
+                month_rates_by_month=expense_month_rates_by_month,
+            )
+            for transaction in expenses
+        ),
+        Decimal("0.00"),
+    )
+    net_cash_flow_gbp = cash_inflow_gbp - cash_outflow_gbp
     gross_income_gbp = sum(
         income_summary.gross_total_gbp_by_currency.values(),
         Decimal("0.00"),
@@ -524,6 +559,9 @@ def build_overall_dashboard_summary(
         annualised_monthly_net_saving_gbp=annualised_monthly_net_saving_gbp,
         total_tax_amount_gbp=total_tax_amount_gbp,
         net_saving_after_tax_amount_gbp=net_saving_gbp - total_tax_amount_gbp,
+        cash_inflow_gbp=cash_inflow_gbp,
+        cash_outflow_gbp=cash_outflow_gbp,
+        net_cash_flow_gbp=net_cash_flow_gbp,
         expense_breakout=expense_breakout,
         finance_currency_summary=build_finance_currency_summary(finance_entries),
     )
@@ -588,15 +626,48 @@ def build_expense_report_summary(
     )
 
 
+def build_expense_tax_split_summary(
+    transactions: list[StoredExpenseTransaction],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+) -> ExpenseTaxSplitSummary:
+    """Return one expense slice split into ex-tax spending and tax-payment totals."""
+
+    tax_transactions = filter_tax_payment_transactions(transactions)
+    non_tax_transactions = [
+        transaction for transaction in transactions if not _is_tax_payment_transaction(transaction)
+    ]
+    non_tax_summary = build_expense_report_summary(
+        non_tax_transactions,
+        month_rates_by_month=month_rates_by_month,
+    )
+    tax_summary = build_expense_report_summary(
+        tax_transactions,
+        month_rates_by_month=month_rates_by_month,
+    )
+    return ExpenseTaxSplitSummary(
+        expense_ex_tax_gbp=non_tax_summary.total_spend_gbp,
+        expense_ex_tax_hkd=non_tax_summary.total_spend_hkd,
+        tax_payments_gbp=tax_summary.total_spend_gbp,
+        tax_payments_hkd=tax_summary.total_spend_hkd,
+        transaction_count=len(transactions),
+    )
+
+
 def build_category_spending_report(
     transactions: list[StoredExpenseTransaction],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
 ) -> list[dict[str, Decimal | str]]:
     """Return spending totals grouped by category, largest first."""
 
     totals_gbp: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
     totals_hkd: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
     for transaction in transactions:
-        totals_gbp[transaction.category] += Decimal(transaction.amount_gbp)
+        totals_gbp[transaction.category] += build_expense_transaction_total_gbp(
+            transaction,
+            month_rates_by_month=month_rates_by_month,
+        )
         totals_hkd[transaction.category] += (
             Decimal("0.00") if transaction.amount_hkd is None else Decimal(transaction.amount_hkd)
         )
@@ -622,6 +693,26 @@ def get_living_classification(category: str, group_name: str) -> str | None:
         return None
 
     return LIVING_CATEGORY_CLASSIFICATION_MAP.get(category, "Other")
+
+
+def get_dashboard_chart_bucket(category: str, group_name: str) -> str:
+    """Return the dashboard chart bucket for one expense row.
+
+    Living-group expenses use the living-classification labels. Non-Living rows fall back
+    to a readable group label, with tax-payment groups collapsed to `Tax`.
+    """
+
+    classification = get_living_classification(category, group_name)
+    if classification is not None:
+        return classification
+
+    normalized_group = " ".join(group_name.strip().split())
+    if normalized_group.lower() in {
+        TAX_GROUP_NAME.lower(),
+        TAX_GROUP_NAME_LEGACY.lower(),
+    }:
+        return TAX_CATEGORY_NAME
+    return normalized_group or "Other"
 
 
 def build_living_classification_report(
@@ -684,6 +775,8 @@ def build_largest_expenses_report(
 
 def build_monthly_trend_report(
     transactions: list[StoredExpenseTransaction],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
 ) -> list[dict[str, Decimal | str]]:
     """Return total spending by month for charting and summaries."""
 
@@ -691,7 +784,10 @@ def build_monthly_trend_report(
     totals_hkd: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
     for transaction in transactions:
         month_key = transaction.transaction_date.strftime("%Y-%m")
-        totals_gbp[month_key] += Decimal(transaction.amount_gbp)
+        totals_gbp[month_key] += build_expense_transaction_total_gbp(
+            transaction,
+            month_rates_by_month=month_rates_by_month,
+        )
         totals_hkd[month_key] += (
             Decimal("0.00") if transaction.amount_hkd is None else Decimal(transaction.amount_hkd)
         )
@@ -704,6 +800,129 @@ def build_monthly_trend_report(
         }
         for month in sorted(totals_gbp.keys())
     ]
+
+
+def build_daily_trend_report(
+    transactions: list[StoredExpenseTransaction],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+) -> list[dict[str, Decimal | str]]:
+    """Return total spending by day for charting within one selected month."""
+
+    totals_gbp: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+    totals_hkd: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+    for transaction in transactions:
+        day_key = transaction.transaction_date.isoformat()
+        totals_gbp[day_key] += build_expense_transaction_total_gbp(
+            transaction,
+            month_rates_by_month=month_rates_by_month,
+        )
+        totals_hkd[day_key] += (
+            Decimal("0.00") if transaction.amount_hkd is None else Decimal(transaction.amount_hkd)
+        )
+
+    return [
+        {
+            "day": day,
+            "amount_gbp": totals_gbp[day],
+            "amount_hkd": totals_hkd[day],
+        }
+        for day in sorted(totals_gbp.keys())
+    ]
+
+
+def build_daily_category_trend_report(
+    transactions: list[StoredExpenseTransaction],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+) -> list[dict[str, Decimal | str]]:
+    """Return daily GBP totals split by dashboard chart bucket for stacked daily charts."""
+
+    totals_by_day_category: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0.00"))
+    seen_categories: set[str] = set()
+    seen_days: set[str] = set()
+
+    for transaction in transactions:
+        day_key = transaction.transaction_date.isoformat()
+        category = get_dashboard_chart_bucket(
+            transaction.category,
+            transaction.group_name,
+        )
+        totals_by_day_category[(day_key, category)] += build_expense_transaction_total_gbp(
+            transaction,
+            month_rates_by_month=month_rates_by_month,
+        )
+        seen_categories.add(category)
+        seen_days.add(day_key)
+
+    rows: list[dict[str, Decimal | str]] = []
+    category_order_lookup = {
+        label: index for index, label in enumerate((*LIVING_CLASSIFICATION_ORDER, "Tax"))
+    }
+    sorted_categories = sorted(
+        seen_categories,
+        key=lambda value: (category_order_lookup.get(value, len(category_order_lookup)), value),
+    )
+    for day in sorted(seen_days):
+        for category in sorted_categories:
+            amount = totals_by_day_category[(day, category)]
+            if amount <= 0:
+                continue
+            rows.append(
+                {
+                    "day": day,
+                    "category": category,
+                    "amount_gbp": amount,
+                }
+            )
+    return rows
+
+
+def build_monthly_category_trend_report(
+    transactions: list[StoredExpenseTransaction],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+) -> list[dict[str, Decimal | str]]:
+    """Return monthly GBP totals split by dashboard chart bucket for stacked monthly charts."""
+
+    totals_by_month_category: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0.00"))
+    seen_categories: set[str] = set()
+    seen_months: set[str] = set()
+
+    for transaction in transactions:
+        month_key = transaction.transaction_date.strftime("%Y-%m")
+        category = get_dashboard_chart_bucket(
+            transaction.category,
+            transaction.group_name,
+        )
+        totals_by_month_category[(month_key, category)] += build_expense_transaction_total_gbp(
+            transaction,
+            month_rates_by_month=month_rates_by_month,
+        )
+        seen_categories.add(category)
+        seen_months.add(month_key)
+
+    rows: list[dict[str, Decimal | str]] = []
+    category_order_lookup = {
+        label: index for index, label in enumerate((*LIVING_CLASSIFICATION_ORDER, "Tax"))
+    }
+    sorted_categories = sorted(
+        seen_categories,
+        key=lambda value: (category_order_lookup.get(value, len(category_order_lookup)), value),
+    )
+    for month in sorted(seen_months):
+        for category in sorted_categories:
+            amount = totals_by_month_category[(month, category)]
+            if amount <= 0:
+                continue
+            rows.append(
+                {
+                    "month": month,
+                    "category": category,
+                    "amount_gbp": amount,
+                }
+            )
+    return rows
 
 
 def build_finance_institution_summary(

@@ -19,6 +19,7 @@ import streamlit as st
 
 try:
     from src.models import (
+        ExchangeRecord,
         ExpenseTransaction,
         IncomeTransaction,
         FinanceSnapshotEntry,
@@ -29,6 +30,7 @@ try:
     )
 except ModuleNotFoundError:  # pragma: no cover - used when src modules are run directly
     from models import (
+        ExchangeRecord,
         ExpenseTransaction,
         IncomeTransaction,
         FinanceSnapshotEntry,
@@ -147,6 +149,29 @@ class StoredFinanceSnapshotEntry:
     related_record_type: str | None
     related_record_item: str | None
     related_record_amount: Decimal | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class StoredExchangeRecord:
+    """Saved exchange record row returned from the database."""
+
+    id: int
+    exchange_date: date
+    from_institution: str
+    from_account: str
+    from_currency: str
+    from_amount: Decimal
+    fee_amount: Decimal | None
+    to_institution: str
+    to_account: str
+    to_currency: str
+    to_amount: Decimal
+    display_rate_value: Decimal
+    display_rate_base_currency: str
+    display_rate_quote_currency: str
+    notes: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -497,6 +522,28 @@ def _row_to_finance_snapshot_entry(row: dict[str, Any]) -> StoredFinanceSnapshot
         related_record_type=row.get("related_record_type"),
         related_record_item=row.get("related_record_item"),
         related_record_amount=row.get("related_record_amount"),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def _row_to_exchange_record(row: dict[str, Any]) -> StoredExchangeRecord:
+    return StoredExchangeRecord(
+        id=row["id"],
+        exchange_date=row["exchange_date"],
+        from_institution=row["from_institution"],
+        from_account=row["from_account"],
+        from_currency=row["from_currency"],
+        from_amount=row["from_amount"],
+        fee_amount=row.get("fee_amount"),
+        to_institution=row["to_institution"],
+        to_account=row["to_account"],
+        to_currency=row["to_currency"],
+        to_amount=row["to_amount"],
+        display_rate_value=row["display_rate_value"],
+        display_rate_base_currency=row["display_rate_base_currency"],
+        display_rate_quote_currency=row["display_rate_quote_currency"],
+        notes=row["notes"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -2215,6 +2262,224 @@ def fetch_finance_snapshot_dates() -> list[date]:
             cur.execute(sql)
             rows = cur.fetchall()
         return [row["snapshot_date"] for row in rows]
+
+    return _run_with_reconnect(operation)
+
+
+def fetch_exchange_records() -> list[StoredExchangeRecord]:
+    """Fetch exchange records ordered by newest date first."""
+
+    sql = """
+        select
+            id,
+            exchange_date,
+            from_institution,
+            from_account,
+            from_currency,
+            from_amount,
+            fee_amount,
+            to_institution,
+            to_account,
+            to_currency,
+            to_amount,
+            display_rate_value,
+            display_rate_base_currency,
+            display_rate_quote_currency,
+            notes,
+            created_at,
+            updated_at
+        from public.exchange_records
+        order by exchange_date desc, id desc;
+    """
+
+    def operation(conn: PGConnection) -> list[StoredExchangeRecord]:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+        return [_row_to_exchange_record(row) for row in rows]
+
+    return _run_with_reconnect(operation)
+
+
+def insert_exchange_record_with_finance_link(
+    exchange: ExchangeRecord,
+) -> StoredExchangeRecord:
+    """Insert one exchange record and update both finance balances atomically."""
+
+    params = (
+        exchange.exchange_date,
+        exchange.from_institution,
+        exchange.from_account,
+        exchange.from_currency,
+        exchange.from_amount,
+        exchange.fee_amount,
+        exchange.to_institution,
+        exchange.to_account,
+        exchange.to_currency,
+        exchange.to_amount,
+        exchange.display_rate_value,
+        exchange.display_rate_base_currency,
+        exchange.display_rate_quote_currency,
+        exchange.notes,
+    )
+    placeholders = ", ".join(["%s"] * len(params))
+    sql = f"""
+        insert into public.exchange_records (
+            exchange_date,
+            from_institution,
+            from_account,
+            from_currency,
+            from_amount,
+            fee_amount,
+            to_institution,
+            to_account,
+            to_currency,
+            to_amount,
+            display_rate_value,
+            display_rate_base_currency,
+            display_rate_quote_currency,
+            notes
+        )
+        values ({placeholders})
+        returning
+            id,
+            exchange_date,
+            from_institution,
+            from_account,
+            from_currency,
+            from_amount,
+            fee_amount,
+            to_institution,
+            to_account,
+            to_currency,
+            to_amount,
+            display_rate_value,
+            display_rate_base_currency,
+            display_rate_quote_currency,
+            notes,
+            created_at,
+            updated_at;
+    """
+
+    def operation(conn: PGConnection) -> StoredExchangeRecord:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                row = cur.fetchone()
+                stored = _row_to_exchange_record(row)
+                record_type = (
+                    "Transfer"
+                    if stored.from_currency == stored.to_currency
+                    else "Exchange"
+                )
+                exchange_label = (
+                    f"{record_type} #{stored.id}: "
+                    f"{stored.from_currency}->{stored.to_currency}"
+                )
+                _adjust_finance_snapshot_balance(
+                    cur,
+                    institution=stored.from_institution,
+                    account=stored.from_account,
+                    currency=stored.from_currency,
+                    delta=-stored.from_amount,
+                    snapshot_date=stored.exchange_date,
+                    related_record_type=record_type,
+                    related_record_item=exchange_label,
+                    related_record_amount=stored.from_amount,
+                )
+                _adjust_finance_snapshot_balance(
+                    cur,
+                    institution=stored.to_institution,
+                    account=stored.to_account,
+                    currency=stored.to_currency,
+                    delta=stored.to_amount - (stored.fee_amount or Decimal("0")),
+                    snapshot_date=stored.exchange_date,
+                    related_record_type=record_type,
+                    related_record_item=exchange_label,
+                    related_record_amount=stored.to_amount - (stored.fee_amount or Decimal("0")),
+                )
+            conn.commit()
+            return stored
+        except Exception:
+            conn.rollback()
+            raise
+
+    return _run_with_reconnect(operation)
+
+
+def delete_exchange_record_with_finance_link(exchange_id: int) -> bool:
+    """Delete one exchange record and reverse both finance balance adjustments atomically."""
+
+    select_sql = """
+        select
+            id,
+            exchange_date,
+            from_institution,
+            from_account,
+            from_currency,
+            from_amount,
+            fee_amount,
+            to_institution,
+            to_account,
+            to_currency,
+            to_amount,
+            display_rate_value,
+            display_rate_base_currency,
+            display_rate_quote_currency,
+            notes,
+            created_at,
+            updated_at
+        from public.exchange_records
+        where id = %s;
+    """
+    delete_sql = "delete from public.exchange_records where id = %s;"
+
+    def operation(conn: PGConnection) -> bool:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(select_sql, (exchange_id,))
+                row = cur.fetchone()
+                if row is None:
+                    conn.rollback()
+                    return False
+                stored = _row_to_exchange_record(row)
+                record_type = (
+                    "Transfer"
+                    if stored.from_currency == stored.to_currency
+                    else "Exchange"
+                )
+                exchange_label = (
+                    f"Deleted {record_type.lower()} #{stored.id}: "
+                    f"{stored.from_currency}->{stored.to_currency}"
+                )
+                _adjust_finance_snapshot_balance(
+                    cur,
+                    institution=stored.from_institution,
+                    account=stored.from_account,
+                    currency=stored.from_currency,
+                    delta=stored.from_amount,
+                    snapshot_date=stored.exchange_date,
+                    related_record_type=record_type,
+                    related_record_item=exchange_label,
+                    related_record_amount=stored.from_amount,
+                )
+                _adjust_finance_snapshot_balance(
+                    cur,
+                    institution=stored.to_institution,
+                    account=stored.to_account,
+                    currency=stored.to_currency,
+                    delta=-(stored.to_amount - (stored.fee_amount or Decimal("0"))),
+                    snapshot_date=stored.exchange_date,
+                    related_record_type=record_type,
+                    related_record_item=exchange_label,
+                    related_record_amount=stored.to_amount - (stored.fee_amount or Decimal("0")),
+                )
+                cur.execute(delete_sql, (exchange_id,))
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
 
     return _run_with_reconnect(operation)
 

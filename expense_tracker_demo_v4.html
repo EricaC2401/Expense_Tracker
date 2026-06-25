@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#f4f6fb;color:#1a1f2e}
+.app{display:flex;height:100vh;overflow:hidden}
+
+/* ── SIDEBAR ── */
+.sidebar{width:210px;background:#151929;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.sb-logo{padding:18px 16px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.07)}
+.sb-logo-icon{width:28px;height:28px;background:#534AB7;border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sb-logo-icon i{font-size:15px;color:#fff}
+.sb-logo-text{font-size:14px;font-weight:600;color:#e2e8f0}
+.sb-section{font-size:10px;color:rgba(255,255,255,0.28);text-transform:uppercase;letter-spacing:0.09em;padding:14px 16px 5px}
+.nav{display:flex;align-items:center;gap:9px;padding:8px 16px;font-size:12.5px;color:rgba(255,255,255,0.5);cursor:pointer;border-left:2px solid transparent}
+.nav:hover{color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.04)}
+.nav.active{color:#fff;background:rgba(255,255,255,0.09);border-left-color:#6c63ff}
+.nav i{font-size:15px;flex-shrink:0}
+.sb-spacer{flex:1}
+.sb-bottom{padding:12px 16px;border-top:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,0.35);cursor:pointer}
+.sb-bottom:hover{color:rgba(255,255,255,0.6)}
+
+/* ── MAIN ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{background:#fff;border-bottom:1px solid #e8ecf4;padding:12px 22px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:12px}
+.topbar-left{display:flex;align-items:center;gap:14px;min-width:0}
+.page-title{font-size:14px;font-weight:600;color:#1a1f2e;white-space:nowrap}
+.period-pills{display:flex;gap:3px}
+.pill{padding:4px 11px;font-size:11.5px;border-radius:20px;border:1px solid #e0e4ef;color:#7a8399;cursor:pointer;background:#fff;transition:all 0.1s}
+.pill:hover{background:#f4f6fb}
+.pill.active{background:#EEEDFE;color:#534AB7;border-color:#AFA9EC;font-weight:500}
+.topbar-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.period-hint{font-size:11px;color:#8492a6;white-space:nowrap}
+.btn-primary{display:flex;align-items:center;gap:5px;padding:6px 13px;border-radius:7px;border:1px solid #534AB7;background:#534AB7;color:#fff;cursor:pointer;font-size:12px;font-weight:500;white-space:nowrap}
+.btn-primary:hover{background:#3C3489}
+.btn-secondary{display:flex;align-items:center;gap:5px;padding:6px 13px;border-radius:7px;border:1px solid #d0d5e0;background:#fff;color:#1a1f2e;cursor:pointer;font-size:12px;font-weight:500}
+.btn-secondary:hover{background:#f4f6fb}
+.btn-ghost{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:7px;border:1px solid #e0e4ef;background:#fff;color:#5a6478;cursor:pointer;font-size:12px}
+
+/* ── CONTENT ── */
+.content{flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:14px}
+.section{display:none}
+.section.active{display:flex;flex-direction:column;gap:14px}
+
+/* ── METRICS ── */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:11px}
+.metrics-3{grid-template-columns:repeat(3,1fr)}
+.mc{background:#fff;border-radius:11px;padding:15px 17px;border:1px solid #e8ecf4}
+.mc-label{font-size:10.5px;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;color:#8492a6;margin-bottom:5px}
+.mc-value{font-size:21px;font-weight:700;color:#1a1f2e;line-height:1.1}
+.mc-value.neg{color:#c0392b}
+.mc-value.pos{color:#0f6e56}
+.mc-sub{font-size:11px;color:#8492a6;margin-top:3px}
+.mc-delta{display:flex;align-items:center;gap:3px;font-size:11px;margin-top:6px;font-weight:500}
+.mc-delta i{font-size:12px}
+.mc-delta.pos{color:#0f6e56}
+.mc-delta.neg{color:#c0392b}
+.mc-delta.neutral{color:#8492a6;font-weight:400}
+.top-cat-row{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f3f4f8}
+.top-cat-row:last-of-type{border-bottom:none}
+.top-cat-rank{width:18px;height:18px;border-radius:50%;background:#f0f1f5;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#8492a6;flex-shrink:0;margin-top:1px}
+.top-cat-bar-wrap{flex:1;min-width:0}
+.top-cat-name{font-size:12px;color:#1a1f2e;font-weight:500}
+.top-cat-amt{font-size:11.5px;color:#8492a6}
+.bar-track{height:5px;background:#f0f1f5;border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px}
+
+/* ── CARDS ── */
+.card{background:#fff;border-radius:11px;padding:17px 19px;border:1px solid #e8ecf4}
+.card-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#8492a6;margin-bottom:13px;display:flex;align-items:center;gap:6px}
+.card-title i{font-size:14px}
+.card-title .ct-right{margin-left:auto;font-weight:400;font-size:11px;display:flex;align-items:center;gap:4px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+
+/* ── CHARTS ── */
+.chart-wrap{position:relative}
+.donut-wrap{height:175px}
+.bar-wrap{height:220px}
+.hbar-wrap{height:200px}
+.line-wrap{height:200px}
+
+/* ── CATEGORY LIST (dashboard) ── */
+.cat-legend{margin-top:11px}
+.cat-row{display:flex;align-items:center;gap:7px;padding:4px 0;border-bottom:1px solid #f3f4f8;font-size:12px}
+.cat-row:last-child{border-bottom:none}
+.cat-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.cat-name{flex:1;color:#3d4a5c}
+.cat-pct{color:#8492a6;min-width:32px;text-align:right}
+.cat-amt{font-weight:600;color:#1a1f2e;min-width:66px;text-align:right}
+
+/* ── CHIP / BADGE ── */
+.chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:8px;font-weight:600;font-size:11.5px;white-space:nowrap;border:1px solid}
+
+/* ── CATEGORY TABLE (reports style matching screenshots) ── */
+.cat-table{width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;margin-top:8px}
+.cat-table thead tr{background:#f8fafc}
+.cat-table th{text-align:left;padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:11.5px;font-weight:600;color:#4a5568}
+.cat-table th:not(:first-child){text-align:right}
+.cat-table td{padding:10px 12px;border-bottom:1px solid #f1f3f8;font-size:12.5px;color:#1a1f2e;vertical-align:middle}
+.cat-table td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums}
+.cat-table tr:last-child td{border-bottom:none}
+.cat-table tr:hover td{background:#fafbfd}
+
+/* ── SEGMENTED CONTROL ── */
+.seg-control{display:flex;gap:0;border:1px solid #e0e4ef;border-radius:8px;overflow:hidden;width:fit-content;margin-bottom:12px}
+.seg-btn{padding:5px 14px;font-size:12px;cursor:pointer;background:#fff;color:#5a6478;border:none;border-right:1px solid #e0e4ef;font-family:inherit}
+.seg-btn:last-child{border-right:none}
+.seg-btn.active{background:#EEEDFE;color:#534AB7;font-weight:500}
+
+/* ── FINANCE ── */
+.fin-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f8;font-size:12.5px}
+.fin-row:last-child{border-bottom:none}
+.fin-label{color:#5a6478}
+.fin-bal{font-weight:600;color:#1a1f2e}
+.fin-total{display:flex;justify-content:space-between;padding:9px 0 0;margin-top:6px;border-top:1px solid #e8ecf4;font-size:12.5px;font-weight:600}
+
+/* ── BREAKOUT ── */
+.bk-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f8;font-size:12px}
+.bk-row:last-child{border-bottom:none;font-weight:600;padding-top:7px;border-top:1px solid #e8ecf4}
+.bk-type{color:#3d4a5c}
+.bk-gbp{font-weight:500;color:#1a1f2e}
+.bk-hkd{font-size:10.5px;color:#8492a6;margin-left:3px}
+
+/* ── TABLE ── */
+.tbl-wrap{overflow-x:auto}
+table.data-tbl{width:100%;border-collapse:collapse;font-size:12px}
+table.data-tbl thead tr{border-bottom:1px solid #e8ecf4;background:#f8fafc}
+table.data-tbl th{padding:8px 10px;text-align:left;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#8492a6;white-space:nowrap}
+table.data-tbl td{padding:8px 10px;color:#1a1f2e;border-bottom:1px solid #f3f4f8;vertical-align:middle}
+table.data-tbl tr:last-child td{border-bottom:none}
+table.data-tbl tr:hover td{background:#fafbfd}
+
+/* ── FORM ── */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fg3{grid-template-columns:1fr 1fr 1fr}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-group label{font-size:11px;font-weight:500;color:#5a6478;text-transform:uppercase;letter-spacing:0.04em}
+.form-group input,.form-group select,.form-group textarea{padding:8px 10px;border:1px solid #d8dce8;border-radius:7px;font-size:12.5px;color:#1a1f2e;background:#fff;outline:none;font-family:inherit}
+.form-group input:focus,.form-group select:focus{border-color:#534AB7;box-shadow:0 0 0 3px rgba(83,74,183,0.1)}
+.form-actions{display:flex;gap:8px;padding-top:4px}
+.checkbox-row{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:12.5px;color:#3d4a5c}
+.checkbox-row input[type=checkbox]{width:15px;height:15px;accent-color:#534AB7}
+
+/* ── FILTER BAR ── */
+.filter-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.filter-bar input,.filter-bar select{padding:6px 10px;border:1px solid #d8dce8;border-radius:7px;font-size:12px;color:#1a1f2e;background:#fff;outline:none;font-family:inherit}
+.filter-bar input:focus,.filter-bar select:focus{border-color:#534AB7}
+.search-wrap{position:relative;flex:1;min-width:160px}
+.search-wrap i{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#8492a6;font-size:14px;pointer-events:none}
+.search-wrap input{padding-left:30px;width:100%}
+
+/* ── RECURRING CARDS ── */
+.rec-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.rec-card{background:#fff;border:1px solid #e8ecf4;border-radius:10px;padding:13px 15px;display:flex;align-items:center;gap:11px}
+.rec-icon{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.rec-icon i{font-size:16px}
+.rec-info{flex:1;min-width:0}
+.rec-name{font-weight:600;font-size:12.5px;color:#1a1f2e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rec-sub{font-size:10.5px;color:#8492a6;margin-top:2px}
+.rec-amt{text-align:right;flex-shrink:0}
+.rec-amt-val{font-weight:700;font-size:13px;color:#1a1f2e}
+.rec-amt-freq{font-size:10px;color:#8492a6}
+
+/* ── STATUS ── */
+.dot-green{width:6px;height:6px;border-radius:50%;background:#1D9E75;display:inline-block}
+.dot-amber{width:6px;height:6px;border-radius:50%;background:#BA7517;display:inline-block}
+
+/* ── UPLOAD ZONE ── */
+.upload-zone{border:1.5px dashed #c8cfe0;border-radius:10px;padding:30px;text-align:center;color:#8492a6;background:#fafbfd;cursor:pointer}
+.upload-zone:hover{border-color:#534AB7;background:#EEEDFE}
+.upload-zone i{font-size:30px;margin-bottom:8px;display:block;color:#b0b8cc}
+.upload-zone:hover i{color:#534AB7}
+.upload-title{font-size:13px;font-weight:500;color:#3d4a5c;margin-bottom:4px}
+.upload-hint{font-size:11px;line-height:1.5}
+.fmt-hints{margin-top:12px;font-size:11.5px;color:#8492a6;line-height:1.8}
+.fmt-hints strong{color:#5a6478;display:block;margin-bottom:2px}
+
+/* ── LEGEND ── */
+.legend-row{display:flex;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:4px;font-size:11px;color:#7a8399}
+.legend-swatch{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+
+/* ── SECTION HEADER ── */
+.section-header{font-size:13px;font-weight:600;color:#1a1f2e;margin-bottom:2px}
+.section-sub{font-size:11.5px;color:#8492a6;margin-bottom:10px}
+
+/* ── REPORT SECTION BLOCK ── */
+.report-block{background:#fff;border-radius:11px;padding:18px 20px;border:1px solid #e8ecf4;display:flex;flex-direction:column;gap:0}
+.report-block-title{font-size:13px;font-weight:600;color:#1a1f2e;margin-bottom:14px}
+
+/* ── MISC ── */
+.info-box{background:#f0f4ff;border:1px solid #c7d2fe;border-radius:8px;padding:10px 14px;font-size:12px;color:#3730a3}
+.filename-box{background:#f4f6fb;border-radius:8px;padding:10px 12px;font-size:12px;color:#5a6478;margin-top:12px}
+.filename-box code{background:#e8ecf4;padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ══════════════════════════════════════════════════════ SIDEBAR -->
+<div class="sidebar">
+  <div class="sb-logo">
+    <div class="sb-logo-icon"><i class="ti ti-receipt-2"></i></div>
+    <span class="sb-logo-text">Expenses</span>
+  </div>
+  <div class="sb-section">Main</div>
+  <div class="nav active" onclick="nav('dashboard',this)"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+  <div class="nav" onclick="nav('expenses',this)"><i class="ti ti-arrow-down-circle"></i>Expenses</div>
+  <div class="nav" onclick="nav('income',this)"><i class="ti ti-arrow-up-circle"></i>Income</div>
+  <div class="sb-section">Finance</div>
+  <div class="nav" onclick="nav('finance',this)"><i class="ti ti-building-bank"></i>Finance snapshot</div>
+  <div class="nav" onclick="nav('recurring',this)"><i class="ti ti-repeat"></i>Recurring</div>
+  <div class="sb-section">Insights</div>
+  <div class="nav" onclick="nav('reports',this)"><i class="ti ti-chart-pie"></i>Reports</div>
+  <div class="sb-section">Data</div>
+  <div class="nav" onclick="nav('import',this)"><i class="ti ti-upload"></i>Import</div>
+  <div class="nav" onclick="nav('export',this)"><i class="ti ti-download"></i>Export</div>
+  <div class="sb-spacer"></div>
+  <div class="sb-bottom"><i class="ti ti-settings"></i>Settings</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ MAIN -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="page-title" id="page-title">Dashboard</span>
+      <div class="period-pills" id="period-pills">
+        <div class="pill" onclick="setPeriod(this,'Month','June 2025 · 1 Jun → 30 Jun')">Month</div>
+        <div class="pill active" onclick="setPeriod(this,'Financial year','FY 2024/25 · 6 Apr 2024 → 5 Apr 2025')">Financial year</div>
+        <div class="pill" onclick="setPeriod(this,'Calendar year','2025 · 1 Jan → 31 Dec')">Calendar year</div>
+        <div class="pill" onclick="setPeriod(this,'Custom','Custom range')">Custom</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="period-hint" id="period-hint">FY 2024/25 · 6 Apr 2024 → 5 Apr 2025</span>
+      <button class="btn-primary" id="top-btn" style="display:flex"><i class="ti ti-plus"></i><span id="top-btn-label">Add expense</span></button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ══ DASHBOARD ══ -->
+    <div class="section active" id="sec-dashboard">
+
+      <!-- Row 1: 4 metric cards with delta vs last period -->
+      <div class="metrics">
+        <div class="mc">
+          <div class="mc-label">Gross income</div>
+          <div class="mc-value">£48,200</div>
+          <div class="mc-sub">FY 2024/25</div>
+          <div class="mc-delta pos"><i class="ti ti-trending-up"></i>+£3,200 vs last FY</div>
+        </div>
+        <div class="mc">
+          <div class="mc-label">Total expenses</div>
+          <div class="mc-value neg">£31,450</div>
+          <div class="mc-sub">65.3% of income</div>
+          <div class="mc-delta neg"><i class="ti ti-trending-up"></i>+£1,840 vs last FY</div>
+        </div>
+        <div class="mc">
+          <div class="mc-label">Net saving</div>
+          <div class="mc-value pos">£16,750</div>
+          <div class="mc-sub">34.7% savings rate</div>
+          <div class="mc-delta pos"><i class="ti ti-trending-up"></i>+£1,360 vs last FY</div>
+        </div>
+        <div class="mc">
+          <div class="mc-label">Total tax</div>
+          <div class="mc-value">£8,400</div>
+          <div class="mc-sub">Tax amount (GBP)</div>
+          <div class="mc-delta neutral"><i class="ti ti-minus"></i>No change vs last FY</div>
+        </div>
+      </div>
+
+      <!-- Row 2: Income vs Expenses bar chart (full width) -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-bar"></i>Income vs expenses by month</div>
+          <div class="legend-row" style="margin-bottom:0">
+            <span class="legend-item"><span class="legend-swatch" style="background:#534AB7"></span>Income</span>
+            <span class="legend-item"><span class="legend-swatch" style="background:#D85A30"></span>Expenses</span>
+            <span class="legend-item" style="gap:6px"><span style="width:14px;border-top:2px dashed #1D9E75;display:inline-block"></span>Net saving</span>
+          </div>
+        </div>
+        <div class="chart-wrap bar-wrap"><canvas id="bar"></canvas></div>
+      </div>
+
+      <!-- Row 3: Top 3 categories | Finance snapshot | Expense breakout -->
+      <div class="row3">
+
+        <!-- Top 3 categories this period -->
+        <div class="card">
+          <div class="card-title"><i class="ti ti-flame"></i>Top categories
+            <span class="ct-right" style="color:#534AB7;cursor:pointer" onclick="nav('reports',document.querySelector('.nav:nth-child(10)'))">View full breakdown →</span>
+          </div>
+          <div class="top-cat-row">
+            <div class="top-cat-rank">1</div>
+            <div class="top-cat-bar-wrap">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span class="top-cat-name"><span class="cat-dot" style="background:#534AB7;display:inline-block;margin-right:5px"></span>Housing</span>
+                <span class="top-cat-amt">£11,008 · 35%</span>
+              </div>
+              <div class="bar-track"><div class="bar-fill" style="width:100%;background:#534AB7"></div></div>
+            </div>
+          </div>
+          <div class="top-cat-row">
+            <div class="top-cat-rank">2</div>
+            <div class="top-cat-bar-wrap">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span class="top-cat-name"><span class="cat-dot" style="background:#1D9E75;display:inline-block;margin-right:5px"></span>Groceries</span>
+                <span class="top-cat-amt">£5,661 · 18%</span>
+              </div>
+              <div class="bar-track"><div class="bar-fill" style="width:51%;background:#1D9E75"></div></div>
+            </div>
+          </div>
+          <div class="top-cat-row">
+            <div class="top-cat-rank">3</div>
+            <div class="top-cat-bar-wrap">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span class="top-cat-name"><span class="cat-dot" style="background:#5D98B3;display:inline-block;margin-right:5px"></span>Transport</span>
+                <span class="top-cat-amt">£3,774 · 12%</span>
+              </div>
+              <div class="bar-track"><div class="bar-fill" style="width:34%;background:#5D98B3"></div></div>
+            </div>
+          </div>
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid #f3f4f8;font-size:11px;color:#8492a6">
+            4 more categories · <a href="#" style="color:#534AB7;text-decoration:none" onclick="nav('reports',document.querySelectorAll('.nav')[9]);return false">see all in Reports</a>
+          </div>
+        </div>
+
+        <!-- Finance snapshot -->
+        <div class="card">
+          <div class="card-title"><i class="ti ti-building-bank"></i>Finance snapshot<span class="ct-right"><span class="dot-green"></span>Latest</span></div>
+          <div class="fin-row"><span class="fin-label">Monzo / Current / GBP</span><span class="fin-bal">£4,230</span></div>
+          <div class="fin-row"><span class="fin-label">HSBC UK / Savings / GBP</span><span class="fin-bal">£12,500</span></div>
+          <div class="fin-row"><span class="fin-label">HSBC HK / HKD</span><span class="fin-bal">HK$38,400</span></div>
+          <div class="fin-row"><span class="fin-label">Wise / USD</span><span class="fin-bal">$1,200</span></div>
+          <div class="fin-total"><span>Total (GBP equiv.)</span><span>£22,432</span></div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f3f4f8">
+            <div style="display:flex;justify-content:space-between;font-size:11.5px;color:#8492a6">
+              <span>vs last snapshot (12 Jun)</span>
+              <span style="color:#0f6e56;font-weight:600">+£842</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Expense breakout -->
+        <div class="card">
+          <div class="card-title"><i class="ti ti-receipt"></i>Expense breakout</div>
+          <div class="bk-row"><span class="bk-type">Annual / Planned irregular</span><span><span class="bk-gbp">£1,200</span><span class="bk-hkd">/ HK$0</span></span></div>
+          <div class="bk-row"><span class="bk-type">One-off / Exceptional</span><span><span class="bk-gbp">£450</span><span class="bk-hkd">/ HK$0</span></span></div>
+          <div class="bk-row"><span class="bk-type">Tax</span><span><span class="bk-gbp">£8,400</span><span class="bk-hkd">/ HK$0</span></span></div>
+          <div class="bk-row"><span class="bk-type">Other</span><span><span class="bk-gbp">£29,800</span><span class="bk-hkd">/ HK$12,400</span></span></div>
+          <div class="bk-row"><span class="bk-type">Total (excl. tax)</span><span><span class="bk-gbp">£31,450</span><span class="bk-hkd">/ HK$12,400</span></span></div>
+          <div class="bk-row" style="border-top:1px solid #e8ecf4;margin-top:2px"><span class="bk-type">Total (incl. tax)</span><span><span class="bk-gbp">£39,850</span><span class="bk-hkd">/ HK$12,400</span></span></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ══ EXPENSES ══ -->
+    <div class="section" id="sec-expenses">
+      <div class="card" style="padding:13px 17px">
+        <div class="filter-bar">
+          <div class="search-wrap"><i class="ti ti-search"></i><input type="text" placeholder="Search expenses…"></div>
+          <select><option>All categories</option><option>Housing</option><option>Groceries</option><option>Transport</option><option>Car Related: Fuel</option><option>Eating out</option><option>Bills</option><option>Subscriptions</option><option>Healthcare</option></select>
+          <select><option>All groups</option><option>Living</option><option>TaxPayment</option></select>
+          <select><option>All payment methods</option><option>Monzo Current</option><option>HSBC HK GBP</option><option>HSBC HK HKD</option></select>
+          <button class="btn-secondary"><i class="ti ti-filter"></i>Filter</button>
+        </div>
+      </div>
+      <div class="card" style="padding:0 0 4px">
+        <div class="tbl-wrap">
+          <table class="data-tbl">
+            <thead><tr><th><input type="checkbox"></th><th>Date</th><th>Description</th><th>Category</th><th>Group</th><th>Amount (GBP)</th><th>Amount (HKD)</th><th>Tax ded.</th><th>Payment method</th><th>Notes</th></tr></thead>
+            <tbody id="expense-tbody">
+              <tr><td><input type="checkbox"></td><td>2025-06-01</td><td>Rent – June</td><td><span class="chip" style="background:rgba(83,74,183,0.14);border-color:rgba(83,74,183,0.22);color:#534AB7">Housing</span></td><td>Living</td><td style="font-weight:600">£950.00</td><td>—</td><td style="text-align:center">✓</td><td>Monzo Current</td><td></td></tr>
+              <tr><td><input type="checkbox"></td><td>2025-06-03</td><td>Tesco weekly shop</td><td><span class="chip" style="background:rgba(29,158,117,0.14);border-color:rgba(29,158,117,0.22);color:#1D9E75">Groceries</span></td><td>Living</td><td style="font-weight:600">£67.40</td><td>—</td><td></td><td>Monzo Current</td><td></td></tr>
+              <tr><td><input type="checkbox"></td><td>2025-06-08</td><td>Diesel fill-up</td><td><span class="chip" style="background:rgba(198,146,91,0.14);border-color:rgba(198,146,91,0.22);color:#C6925B">Car Related: Fuel</span></td><td>Living</td><td style="font-weight:600">£72.00</td><td>—</td><td></td><td>Monzo Current</td><td></td></tr>
+              <tr><td><input type="checkbox"></td><td>2025-06-10</td><td>Trainline – London</td><td><span class="chip" style="background:rgba(93,152,179,0.14);border-color:rgba(93,152,179,0.22);color:#5D98B3">Transport</span></td><td>Living</td><td style="font-weight:600">£43.50</td><td>—</td><td style="text-align:center">✓</td><td>Monzo Current</td><td>Work trip</td></tr>
+              <tr><td><input type="checkbox"></td><td>2025-06-12</td><td>Dinner – Dishoom</td><td><span class="chip" style="background:rgba(198,146,91,0.14);border-color:rgba(198,146,91,0.22);color:#C6925B">Eating out</span></td><td>Living</td><td style="font-weight:600">£48.00</td><td>—</td><td></td><td>Monzo Current</td><td></td></tr>
+              <tr><td><input type="checkbox"></td><td>2025-06-18</td><td>Hong Kong groceries</td><td><span class="chip" style="background:rgba(29,158,117,0.14);border-color:rgba(29,158,117,0.22);color:#1D9E75">Groceries</span></td><td>Living</td><td style="font-weight:600">£38.20</td><td>HK$392.00</td><td></td><td>HSBC HK HKD</td><td></td></tr>
+              <tr><td><input type="checkbox"></td><td>2025-06-20</td><td>Council tax</td><td><span class="chip" style="background:rgba(196,122,122,0.14);border-color:rgba(196,122,122,0.22);color:#C47A7A">Bills</span></td><td>Living</td><td style="font-weight:600">£180.00</td><td>—</td><td></td><td>Monzo Current</td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-plus"></i>Add new expense</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Date</label><input type="date" value="2025-06-23"></div>
+          <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. Tesco weekly shop"></div>
+          <div class="form-group"><label>Category</label><select><option>Groceries</option><option>Housing</option><option>Transport</option><option>Car Related: Fuel</option><option>Car Related: One-Off</option><option>Car Related: Other</option><option>Eating out</option><option>Bills</option><option>Subscriptions</option><option>Healthcare</option><option>Gift</option><option>Gathering</option><option>Drink</option><option>Snacks</option><option>Other</option></select></div>
+          <div class="form-group"><label>Group</label><select><option>Living</option><option>TaxPayment</option></select></div>
+          <div class="form-group"><label>Amount (GBP)</label><input type="number" placeholder="0.00" step="0.01"></div>
+          <div class="form-group"><label>Amount (HKD) — optional</label><input type="number" placeholder="0.00" step="0.01"></div>
+          <div class="form-group"><label>Payment method</label><select><option>Monzo Current</option><option>HSBC HK GBP</option><option>HSBC HK HKD</option><option>HSBC UK Savings</option><option>— No linked account</option></select></div>
+          <div class="form-group"><label>Notes</label><input type="text" placeholder="Optional note"></div>
+        </div>
+        <div class="checkbox-row"><input type="checkbox"><span>Tax deductible</span></div>
+        <div class="form-actions" style="margin-top:10px"><button class="btn-primary"><i class="ti ti-check"></i>Save expense</button><button class="btn-secondary">Clear</button></div>
+      </div>
+    </div>
+
+    <!-- ══ INCOME ══ -->
+    <div class="section" id="sec-income">
+      <div class="metrics metrics-3">
+        <div class="mc"><div class="mc-label">Gross income (GBP)</div><div class="mc-value pos">£48,200</div><div class="mc-sub">FY 2024/25</div></div>
+        <div class="mc"><div class="mc-label">Tax due</div><div class="mc-value">£9,640</div><div class="mc-sub">From tax-due entries</div></div>
+        <div class="mc"><div class="mc-label">After-tax income</div><div class="mc-value pos">£38,560</div><div class="mc-sub">Gross minus tax due</div></div>
+      </div>
+      <div class="card" style="padding:0 0 4px">
+        <div class="tbl-wrap">
+          <table class="data-tbl">
+            <thead><tr><th><input type="checkbox"></th><th>Date</th><th>Description</th><th>Source</th><th>Currency</th><th>Gross amount</th><th>GBP equiv.</th><th>FX rate</th><th>Taxable</th><th>Account</th></tr></thead>
+            <tbody>
+              <tr><td><input type="checkbox"></td><td>2025-06-01</td><td>June salary</td><td>Employer</td><td>GBP</td><td>£4,000.00</td><td>£4,000.00</td><td>—</td><td style="text-align:center">✓</td><td>Monzo Current</td></tr>
+              <tr><td><input type="checkbox"></td><td>2025-04-15</td><td>Freelance project</td><td>Client A</td><td>USD</td><td>$2,500.00</td><td>£1,980.00</td><td>0.7920</td><td style="text-align:center">✓</td><td>HSBC HK GBP</td></tr>
+              <tr><td><input type="checkbox"></td><td>2025-03-28</td><td>HK consulting</td><td>Client B</td><td>HKD</td><td>HK$15,000</td><td>£1,447.00</td><td>0.0965</td><td style="text-align:center">✓</td><td>HSBC HK HKD</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-plus"></i>Add income</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Date</label><input type="date" value="2025-06-23"></div>
+          <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. June salary"></div>
+          <div class="form-group"><label>Source</label><input type="text" placeholder="e.g. Employer"></div>
+          <div class="form-group"><label>Currency</label><select><option>GBP</option><option>HKD</option><option>USD</option><option>EUR</option><option>CAD</option><option>JPY</option></select></div>
+          <div class="form-group"><label>Gross amount</label><input type="number" placeholder="0.00" step="0.01"></div>
+          <div class="form-group"><label>Gross amount (GBP) — optional</label><input type="number" placeholder="0.00" step="0.01"></div>
+          <div class="form-group"><label>FX rate to GBP — optional</label><input type="number" placeholder="0.0000" step="0.0001"></div>
+          <div class="form-group"><label>Payment account</label><select><option>— No linked account</option><option>Monzo Current</option><option>HSBC HK GBP</option><option>HSBC HK HKD</option></select></div>
+        </div>
+        <div class="checkbox-row"><input type="checkbox" checked><span>Taxable income</span></div>
+        <div class="form-actions" style="margin-top:10px"><button class="btn-primary"><i class="ti ti-check"></i>Save income</button><button class="btn-secondary">Clear</button></div>
+      </div>
+    </div>
+
+    <!-- ══ FINANCE ══ -->
+    <div class="section" id="sec-finance">
+      <div class="metrics metrics-3">
+        <div class="mc"><div class="mc-label">Total (GBP equiv.)</div><div class="mc-value pos">£22,432</div><div class="mc-sub">Excl. Mum's Time D</div></div>
+        <div class="mc"><div class="mc-label">Total (HKD equiv.)</div><div class="mc-value">HK$232,644</div><div class="mc-sub">Excl. Mum's Time D</div></div>
+        <div class="mc"><div class="mc-label">Accounts tracked</div><div class="mc-value">6</div><div class="mc-sub">Across 3 institutions</div></div>
+      </div>
+      <div class="row2">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-building-bank"></i>Current balances<span class="ct-right"><span class="dot-green"></span>Snapshot: 23 Jun 2025</span></div>
+          <div class="fin-row"><span class="fin-label">Monzo / Current / GBP</span><span class="fin-bal">£4,230.00</span></div>
+          <div class="fin-row"><span class="fin-label">HSBC UK / Savings / GBP</span><span class="fin-bal">£12,500.00</span></div>
+          <div class="fin-row"><span class="fin-label">HSBC HK / GBP / GBP</span><span class="fin-bal">£2,000.00</span></div>
+          <div class="fin-row"><span class="fin-label">HSBC HK / HKD / HKD</span><span class="fin-bal">HK$38,400.00</span></div>
+          <div class="fin-row"><span class="fin-label">Wise / Main / USD</span><span class="fin-bal">$1,200.00</span></div>
+          <div class="fin-row"><span class="fin-label">TopCashback / Cashback / GBP</span><span class="fin-bal">£128.50</span></div>
+          <div class="fin-total"><span>GBP equiv. total</span><span>£22,432.00</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-plus"></i>Update snapshot</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Snapshot date</label><input type="date" value="2025-06-23"></div>
+            <div class="form-group"><label>Institution</label><input type="text" placeholder="e.g. Monzo"></div>
+            <div class="form-group"><label>Account</label><input type="text" placeholder="e.g. Current"></div>
+            <div class="form-group"><label>Currency</label><select><option>GBP</option><option>HKD</option><option>USD</option><option>EUR</option></select></div>
+            <div class="form-group"><label>Balance</label><input type="number" placeholder="0.00" step="0.01"></div>
+            <div class="form-group"><label>Account type — optional</label><input type="text" placeholder="e.g. Savings"></div>
+          </div>
+          <div class="form-actions" style="margin-top:10px"><button class="btn-primary"><i class="ti ti-check"></i>Save entry</button><button class="btn-secondary">Clear</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ RECURRING ══ -->
+    <div class="section" id="sec-recurring">
+      <div class="metrics metrics-3">
+        <div class="mc"><div class="mc-label">Monthly committed</div><div class="mc-value neg">£1,284</div><div class="mc-sub">Active recurring expenses</div></div>
+        <div class="mc"><div class="mc-label">Monthly income</div><div class="mc-value pos">£4,000</div><div class="mc-sub">Active recurring income</div></div>
+        <div class="mc"><div class="mc-label">Active templates</div><div class="mc-value">9</div><div class="mc-sub">6 expenses · 3 income</div></div>
+      </div>
+      <div class="row2">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-arrow-down-circle"></i>Recurring expenses</div>
+          <div class="rec-grid">
+            <div class="rec-card"><div class="rec-icon" style="background:#EEEDFE"><i class="ti ti-home-2" style="color:#534AB7"></i></div><div class="rec-info"><div class="rec-name">Rent</div><div class="rec-sub">1st · Housing · <span class="dot-green"></span> Active</div></div><div class="rec-amt"><div class="rec-amt-val">£950</div><div class="rec-amt-freq">/month</div></div></div>
+            <div class="rec-card"><div class="rec-icon" style="background:#FAEEDA"><i class="ti ti-car" style="color:#BA7517"></i></div><div class="rec-info"><div class="rec-name">Car insurance</div><div class="rec-sub">15th · Car Annual · <span class="dot-green"></span> Active</div></div><div class="rec-amt"><div class="rec-amt-val">£89</div><div class="rec-amt-freq">/month</div></div></div>
+            <div class="rec-card"><div class="rec-icon" style="background:#FBEAF0"><i class="ti ti-device-mobile" style="color:#993556"></i></div><div class="rec-info"><div class="rec-name">VOXI mobile</div><div class="rec-sub">5th · Subscriptions · <span class="dot-green"></span> Active</div></div><div class="rec-amt"><div class="rec-amt-val">£12</div><div class="rec-amt-freq">/month</div></div></div>
+            <div class="rec-card"><div class="rec-icon" style="background:#E1F5EE"><i class="ti ti-player-play" style="color:#0F6E56"></i></div><div class="rec-info"><div class="rec-name">Netflix</div><div class="rec-sub">18th · Subscriptions · <span class="dot-green"></span> Active</div></div><div class="rec-amt"><div class="rec-amt-val">£17.99</div><div class="rec-amt-freq">/month</div></div></div>
+            <div class="rec-card"><div class="rec-icon" style="background:#FAECE7"><i class="ti ti-bolt" style="color:#993C1D"></i></div><div class="rec-info"><div class="rec-name">Electricity</div><div class="rec-sub">28th · Bills · <span class="dot-green"></span> Active</div></div><div class="rec-amt"><div class="rec-amt-val">£95</div><div class="rec-amt-freq">/month</div></div></div>
+            <div class="rec-card"><div class="rec-icon" style="background:#F1EFE8"><i class="ti ti-cloud" style="color:#5F5E5A"></i></div><div class="rec-info"><div class="rec-name">iCloud</div><div class="rec-sub">22nd · Subscriptions · <span class="dot-amber"></span> Paused</div></div><div class="rec-amt"><div class="rec-amt-val">£2.99</div><div class="rec-amt-freq">/month</div></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-arrow-up-circle"></i>Recurring income</div>
+          <div class="rec-grid">
+            <div class="rec-card"><div class="rec-icon" style="background:#E1F5EE"><i class="ti ti-briefcase" style="color:#0F6E56"></i></div><div class="rec-info"><div class="rec-name">Monthly salary</div><div class="rec-sub">1st · Employer · <span class="dot-green"></span> Active</div></div><div class="rec-amt"><div class="rec-amt-val">£4,000</div><div class="rec-amt-freq">/month</div></div></div>
+            <div class="rec-card"><div class="rec-icon" style="background:#EEEDFE"><i class="ti ti-coin" style="color:#534AB7"></i></div><div class="rec-info"><div class="rec-name">Rental income</div><div class="rec-sub">1st · HKD · <span class="dot-green"></span> Active</div></div><div class="rec-amt"><div class="rec-amt-val">HK$3,500</div><div class="rec-amt-freq">/month</div></div></div>
+          </div>
+          <hr style="border:none;border-top:1px solid #e8ecf4;margin:16px 0 14px">
+          <div class="card-title" style="margin-bottom:12px"><i class="ti ti-plus"></i>New recurring template</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. Rent"></div>
+            <div class="form-group"><label>Category</label><select><option>Housing</option><option>Bills</option><option>Subscriptions</option><option>Car Related: Annual</option></select></div>
+            <div class="form-group"><label>Amount (GBP)</label><input type="number" placeholder="0.00"></div>
+            <div class="form-group"><label>Day of month</label><input type="number" placeholder="1" min="1" max="31"></div>
+            <div class="form-group"><label>Start date</label><input type="date" value="2025-07-01"></div>
+            <div class="form-group"><label>End date — optional</label><input type="date"></div>
+          </div>
+          <div class="form-actions" style="margin-top:10px"><button class="btn-primary"><i class="ti ti-check"></i>Create template</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ REPORTS ══ -->
+    <div class="section" id="sec-reports">
+      <div class="card" style="padding:13px 17px">
+        <div class="filter-bar">
+          <select><option>Financial year 2024/25</option><option>Calendar year 2025</option><option>Last 3 months</option></select>
+          <select><option>Group: Living</option><option>All groups</option><option>Group: TaxPayment</option></select>
+          <select><option>All categories</option><option>Housing</option><option>Car Related: Fuel</option><option>Healthcare</option></select>
+          <button class="btn-secondary"><i class="ti ti-refresh"></i>Refresh</button>
+        </div>
+      </div>
+      <div class="metrics metrics-3">
+        <div class="mc"><div class="mc-label">Total (GBP)</div><div class="mc-value">£704.52</div><div class="mc-sub">Filtered period</div></div>
+        <div class="mc"><div class="mc-label">Total (HKD)</div><div class="mc-value">HK$392.00</div><div class="mc-sub">HKD expenses only</div></div>
+        <div class="mc"><div class="mc-label">Transactions</div><div class="mc-value">7</div><div class="mc-sub">In date range</div></div>
+      </div>
+
+      <!-- Category breakdown -->
+      <div class="report-block">
+        <div class="report-block-title">Spending by category</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="switchCatType('bar',this)">Bar</button>
+            <button class="seg-btn" onclick="switchCatType('pie',this)">Pie</button>
+          </div>
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="setCurrency('GBP',this)">GBP</button>
+            <button class="seg-btn" onclick="setCurrency('HKD',this)">HKD</button>
+          </div>
+        </div>
+        <div id="cat-bar-wrap" class="chart-wrap hbar-wrap"><canvas id="hbar"></canvas></div>
+        <div id="cat-pie-wrap" class="chart-wrap" style="height:260px;display:none"><canvas id="cat-pie"></canvas></div>
+        <div style="overflow-x:auto;margin-top:16px">
+          <table class="cat-table">
+            <thead><tr><th>Category</th><th>Amount (GBP)</th><th>Percentage</th></tr></thead>
+            <tbody>
+              <tr><td><span class="chip" style="background:rgba(83,74,183,0.14);border-color:rgba(83,74,183,0.22);color:#534AB7">Housing</span></td><td>GBP 495.00</td><td>70.3%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(198,146,91,0.14);border-color:rgba(198,146,91,0.22);color:#C6925B">Car Related: Fuel</span></td><td>GBP 43.56</td><td>6.2%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(93,152,179,0.14);border-color:rgba(93,152,179,0.22);color:#5D98B3">Healthcare</span></td><td>GBP 27.90</td><td>4.0%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(29,158,117,0.14);border-color:rgba(29,158,117,0.22);color:#1D9E75">Food</span></td><td>GBP 27.61</td><td>3.9%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(186,117,23,0.14);border-color:rgba(186,117,23,0.22);color:#BA7517">Gathering</span></td><td>GBP 26.57</td><td>3.8%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(212,83,126,0.14);border-color:rgba(212,83,126,0.22);color:#D4537E">Gift</span></td><td>GBP 25.00</td><td>3.5%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(124,143,184,0.14);border-color:rgba(124,143,184,0.22);color:#7C8FB8">Car Related: One-Off</span></td><td>GBP 18.90</td><td>2.7%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(136,135,128,0.14);border-color:rgba(136,135,128,0.22);color:#888780">Other</span></td><td>GBP 39.98</td><td>5.6%</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Living classification -->
+      <div class="report-block">
+        <div class="report-block-title">Living classification</div>
+        <div style="display:flex;align-items:center;margin-bottom:14px">
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="switchLivType('bar',this)">Bar</button>
+            <button class="seg-btn" onclick="switchLivType('pie',this)">Pie</button>
+          </div>
+        </div>
+        <div id="liv-bar-wrap" class="chart-wrap hbar-wrap"><canvas id="living-bar"></canvas></div>
+        <div id="liv-pie-wrap" class="chart-wrap" style="height:260px;display:none"><canvas id="liv-pie"></canvas></div>
+        <div style="overflow-x:auto;margin-top:16px">
+          <table class="cat-table">
+            <thead><tr><th>Category</th><th>Amount (GBP)</th><th>Percentage</th></tr></thead>
+            <tbody>
+              <tr><td><span class="chip" style="background:rgba(83,74,183,0.14);border-color:rgba(83,74,183,0.22);color:#534AB7">Housing</span></td><td>GBP 495.00</td><td>70.3%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(93,152,179,0.14);border-color:rgba(93,152,179,0.22);color:#5D98B3">All Car Expenses</span></td><td>GBP 75.55</td><td>10.7%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(136,135,128,0.14);border-color:rgba(136,135,128,0.22);color:#888780">Other</span></td><td>GBP 52.90</td><td>7.5%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(99,153,34,0.14);border-color:rgba(99,153,34,0.22);color:#639922">Necessaries</span></td><td>GBP 50.33</td><td>7.1%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(124,143,184,0.14);border-color:rgba(124,143,184,0.22);color:#7C8FB8">Social</span></td><td>GBP 26.57</td><td>3.8%</td></tr>
+              <tr><td><span class="chip" style="background:rgba(212,83,126,0.14);border-color:rgba(212,83,126,0.22);color:#D4537E">LH</span></td><td>GBP 3.89</td><td>0.6%</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Monthly trend -->
+      <div class="report-block">
+        <div class="report-block-title">Monthly trend</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="switchTrend('line',this)">Line</button>
+            <button class="seg-btn" onclick="switchTrend('bar',this)">Bar</button>
+            <button class="seg-btn" onclick="switchTrend('stacked',this)">Stacked</button>
+          </div>
+          <div id="trend-legend" class="legend-row" style="margin-bottom:0"></div>
+        </div>
+        <div class="chart-wrap" style="height:240px"><canvas id="trend"></canvas></div>
+        <p id="trend-hint" style="font-size:11px;color:#8492a6;margin-top:8px">Line: monthly expense total. Bar: income vs expenses. Stacked: expenses broken down by category.</p>
+      </div>
+
+      <!-- Largest expenses -->
+      <div class="report-block">
+        <div class="report-block-title">Largest expenses</div>
+        <div class="tbl-wrap">
+          <table class="data-tbl">
+            <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Group</th><th>Amount (GBP)</th><th>Amount (HKD)</th></tr></thead>
+            <tbody>
+              <tr><td>2025-06-01</td><td>Rent – June</td><td><span class="chip" style="background:rgba(83,74,183,0.14);border-color:rgba(83,74,183,0.22);color:#534AB7">Housing</span></td><td>Living</td><td>950.00</td><td></td></tr>
+              <tr><td>2025-06-20</td><td>Council tax</td><td><span class="chip" style="background:rgba(196,122,122,0.14);border-color:rgba(196,122,122,0.22);color:#C47A7A">Bills</span></td><td>Living</td><td>180.00</td><td></td></tr>
+              <tr><td>2025-06-08</td><td>Diesel fill-up</td><td><span class="chip" style="background:rgba(198,146,91,0.14);border-color:rgba(198,146,91,0.22);color:#C6925B">Car Related: Fuel</span></td><td>Living</td><td>72.00</td><td></td></tr>
+              <tr><td>2025-06-12</td><td>Dinner – Dishoom</td><td><span class="chip" style="background:rgba(198,146,91,0.14);border-color:rgba(198,146,91,0.22);color:#C6925B">Eating out</span></td><td>Living</td><td>48.00</td><td></td></tr>
+              <tr><td>2025-06-10</td><td>Trainline – London</td><td><span class="chip" style="background:rgba(93,152,179,0.14);border-color:rgba(93,152,179,0.22);color:#5D98B3">Transport</span></td><td>Living</td><td>43.50</td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ IMPORT ══ -->
+    <div class="section" id="sec-import">
+      <div class="row2">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-upload"></i>Import expenses from CSV</div>
+          <div class="upload-zone">
+            <i class="ti ti-file-text"></i>
+            <div class="upload-title">Drop a CSV file here, or click to browse</div>
+            <div class="upload-hint">Expects: date, description, category, group, amount_gbp, amount_hkd, tax_deductable, payment_method, notes</div>
+          </div>
+          <div class="fmt-hints"><strong>Format requirements</strong>· Date: YYYY-MM-DD or "May 2, 2026"<br>· amount_gbp required; amount_hkd optional<br>· tax_deductable: true/false or yes/no<br>· Duplicates are automatically skipped</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-upload"></i>Import income from CSV</div>
+          <div class="upload-zone">
+            <i class="ti ti-file-text"></i>
+            <div class="upload-title">Drop a CSV file here, or click to browse</div>
+            <div class="upload-hint">Expects: income_date, description, source, currency, gross_amount, gross_amount_gbp, fx_rate_to_gbp, is_taxable, payment_account, notes</div>
+          </div>
+          <div class="fmt-hints"><strong>Format requirements</strong>· Multi-currency: include fx_rate_to_gbp or gross_amount_gbp<br>· is_taxable: true/false<br>· HMRC monthly rates auto-fetched for HKD conversion<br>· Duplicates are automatically skipped</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ EXPORT ══ -->
+    <div class="section" id="sec-export">
+      <div class="row2">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-download"></i>Export expenses</div>
+          <div class="form-grid">
+            <div class="form-group"><label>From date</label><input type="date" value="2025-04-06"></div>
+            <div class="form-group"><label>To date</label><input type="date" value="2025-06-23"></div>
+            <div class="form-group"><label>Category filter</label><select><option>All categories</option><option>Housing</option><option>Groceries</option></select></div>
+            <div class="form-group"><label>Format</label><select><option>CSV</option></select></div>
+          </div>
+          <div class="form-actions" style="margin-top:12px"><button class="btn-primary"><i class="ti ti-download"></i>Download expenses CSV</button></div>
+          <div class="filename-box">File: <code>expenses_2025-04-06_2025-06-23.csv</code></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-download"></i>Export income</div>
+          <div class="form-grid">
+            <div class="form-group"><label>From date</label><input type="date" value="2025-04-06"></div>
+            <div class="form-group"><label>To date</label><input type="date" value="2025-06-23"></div>
+            <div class="form-group"><label>Format</label><select><option>CSV</option></select></div>
+          </div>
+          <div class="form-actions" style="margin-top:12px"><button class="btn-primary"><i class="ti ti-download"></i>Download income CSV</button></div>
+          <div class="filename-box">File: <code>income_2025-04-06_2025-06-23.csv</code></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+// ── Navigation ──
+const pages = {
+  dashboard: {title:'Dashboard',action:'Add expense',pills:true,hint:'FY 2024/25 · 6 Apr 2024 → 5 Apr 2025'},
+  expenses:  {title:'Expenses',action:'Add expense',pills:false,hint:''},
+  income:    {title:'Income',action:'Add income',pills:false,hint:''},
+  finance:   {title:'Finance snapshot',action:'Add entry',pills:false,hint:''},
+  recurring: {title:'Recurring',action:'New template',pills:false,hint:''},
+  reports:   {title:'Reports',action:'',pills:true,hint:'FY 2024/25'},
+  import:    {title:'Import',action:'',pills:false,hint:''},
+  export:    {title:'Export',action:'',pills:false,hint:''},
+};
+function nav(id,el){
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav').forEach(n=>n.classList.remove('active'));
+  document.getElementById('sec-'+id).classList.add('active');
+  el.classList.add('active');
+  const p=pages[id];
+  document.getElementById('page-title').textContent=p.title;
+  document.getElementById('top-btn-label').textContent=p.action;
+  document.getElementById('top-btn').style.display=p.action?'flex':'none';
+  document.getElementById('period-pills').style.display=p.pills?'flex':'none';
+  document.getElementById('period-hint').textContent=p.hint;
+}
+function setPeriod(el,label,hint){
+  document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('period-hint').textContent=hint;
+}
+function setCurrency(cur,el){
+  el.closest('.seg-control').querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ── Chart defaults ──
+const grid='#f0f1f5', tick='#8492a6';
+Chart.defaults.font.family='-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+
+// ─── Dashboard donut ───────────────────────────────────────
+new Chart('donut',{type:'doughnut',data:{
+  labels:['Housing','Groceries','Transport','Car related','Eating out','Bills','Other'],
+  datasets:[{data:[11008,5661,3774,3145,2516,2202,3144],
+    backgroundColor:['#534AB7','#1D9E75','#5D98B3','#7C8FB8','#C6925B','#C47A7A','#888780'],
+    borderWidth:2,borderColor:'#fff',hoverOffset:4}]
+},options:{responsive:true,maintainAspectRatio:false,cutout:'64%',
+  plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.label+': £'+c.parsed.toLocaleString()}}}}});
+
+// ─── Dashboard bar ─────────────────────────────────────────
+const mo=['Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar'];
+const inc=[4200,3800,4100,4000,4200,3950,4000,3800,4200,3950,4100,3900];
+const exp=[2800,2400,2750,2600,2900,2500,2700,2600,2800,2450,2700,2750];
+new Chart('bar',{type:'bar',data:{labels:mo,datasets:[
+  {label:'Income',data:inc,backgroundColor:'#534AB7',borderRadius:3,borderSkipped:false},
+  {label:'Expenses',data:exp,backgroundColor:'#D85A30',borderRadius:3,borderSkipped:false},
+  {label:'Net saving',data:mo.map((_,i)=>inc[i]-exp[i]),type:'line',borderColor:'#1D9E75',
+    backgroundColor:'transparent',borderWidth:2,borderDash:[4,3],pointRadius:3,
+    pointBackgroundColor:'#1D9E75',tension:0.3,order:0}
+]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+  scales:{x:{grid:{display:false},ticks:{color:tick,font:{size:10}}},
+    y:{grid:{color:grid},border:{display:false},ticks:{color:tick,font:{size:10},
+      callback:v=>'£'+Math.round(v/1000)+'k'}}},interaction:{mode:'index',intersect:false}}});
+
+// ─── Reports: Spending by category ────────────────────────
+const catLabels=['Housing','Car Related: Fuel','Healthcare','Food','Gathering','Gift','Car Related: One-Off','Other'];
+const catValues=[495,43.56,27.90,27.61,26.57,25,18.90,39.98];
+const catColors=['#534AB7','#C6925B','#5D98B3','#1D9E75','#BA7517','#D4537E','#7C8FB8','#888780'];
+
+const hbarChart=new Chart('hbar',{type:'bar',data:{
+  labels:catLabels,
+  datasets:[{data:catValues,backgroundColor:catColors,borderRadius:4,borderSkipped:false}]
+},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+  plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' GBP '+c.parsed.x.toFixed(2)}}},
+  scales:{x:{grid:{color:grid},border:{display:false},ticks:{color:tick,font:{size:10},callback:v=>'£'+v}},
+    y:{grid:{display:false},ticks:{color:tick,font:{size:10}}}}}});
+
+const catPieChart=new Chart('cat-pie',{type:'doughnut',data:{
+  labels:catLabels,
+  datasets:[{data:catValues,backgroundColor:catColors,borderWidth:2,borderColor:'#fff',hoverOffset:6}]
+},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',
+  plugins:{
+    legend:{display:true,position:'right',labels:{font:{size:11},color:tick,boxWidth:10,padding:12}},
+    tooltip:{callbacks:{label:c=>' '+c.label+': GBP '+c.parsed.toFixed(2)+' ('+((c.parsed/catValues.reduce((a,b)=>a+b,0))*100).toFixed(1)+'%)'}}
+  }}});
+
+function switchCatType(type,el){
+  el.closest('.seg-control').querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  const barWrap=document.getElementById('cat-bar-wrap');
+  const pieWrap=document.getElementById('cat-pie-wrap');
+  if(type==='pie'){barWrap.style.display='none';pieWrap.style.display='block';}
+  else{barWrap.style.display='block';pieWrap.style.display='none';}
+}
+
+// ─── Reports: Living classification ───────────────────────
+const livLabels=['Housing','All Car Expenses','Other','Necessaries','Social','LH'];
+const livValues=[495,75.55,52.90,50.33,26.57,3.89];
+const livColors=['#534AB7','#5D98B3','#888780','#639922','#7C8FB8','#D4537E'];
+
+const livBarChart=new Chart('living-bar',{type:'bar',data:{
+  labels:livLabels,
+  datasets:[{data:livValues,backgroundColor:livColors,borderRadius:4,borderSkipped:false}]
+},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+  plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' GBP '+c.parsed.x.toFixed(2)}}},
+  scales:{x:{grid:{color:grid},border:{display:false},ticks:{color:tick,font:{size:10},callback:v=>'£'+v}},
+    y:{grid:{display:false},ticks:{color:tick,font:{size:10}}}}}});
+
+const livPieChart=new Chart('liv-pie',{type:'doughnut',data:{
+  labels:livLabels,
+  datasets:[{data:livValues,backgroundColor:livColors,borderWidth:2,borderColor:'#fff',hoverOffset:6}]
+},options:{responsive:true,maintainAspectRatio:false,cutout:'55%',
+  plugins:{
+    legend:{display:true,position:'right',labels:{font:{size:11},color:tick,boxWidth:10,padding:12}},
+    tooltip:{callbacks:{label:c=>' '+c.label+': GBP '+c.parsed.toFixed(2)+' ('+((c.parsed/livValues.reduce((a,b)=>a+b,0))*100).toFixed(1)+'%)'}}
+  }}});
+
+function switchLivType(type,el){
+  el.closest('.seg-control').querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  const barWrap=document.getElementById('liv-bar-wrap');
+  const pieWrap=document.getElementById('liv-pie-wrap');
+  if(type==='pie'){barWrap.style.display='none';pieWrap.style.display='block';}
+  else{barWrap.style.display='block';pieWrap.style.display='none';}
+}
+
+// ─── Reports: Monthly trend (Line / Bar / Stacked) ────────
+const trendLabels=mo;
+// Stacked category breakdown per month (6 cats × 12 months, sample data)
+const stackCats=[
+  {label:'Housing',   color:'#534AB7', data:[450,450,900,450,450,450,450,450,450,450,900,450]},
+  {label:'Car',       color:'#C6925B', data:[72,40,55,80,65,43,90,48,72,36,60,80]},
+  {label:'Healthcare',color:'#5D98B3', data:[0,28,0,60,0,0,27,0,0,55,0,0]},
+  {label:'Food',      color:'#1D9E75', data:[220,195,240,210,230,200,225,210,235,195,250,220]},
+  {label:'Eating out',color:'#BA7517', data:[85,60,110,75,95,55,80,70,100,65,120,90]},
+  {label:'Other',     color:'#888780', data:[73,27,45,125,60,52,28,22,43,49,70,110]},
+];
+
+const trendLineDataset={
+  label:'Expenses',data:exp,type:'line',
+  borderColor:'#D85A30',backgroundColor:'rgba(216,90,48,0.08)',
+  fill:true,tension:0.35,pointRadius:3,pointBackgroundColor:'#D85A30',borderWidth:2,order:0
+};
+const trendBarDatasets=[
+  {label:'Income',data:inc,backgroundColor:'#534AB7',borderRadius:3,borderSkipped:false,order:1},
+  {label:'Expenses',data:exp,backgroundColor:'#D85A30',borderRadius:3,borderSkipped:false,order:2},
+  {label:'Net saving',data:mo.map((_,i)=>inc[i]-exp[i]),type:'line',
+    borderColor:'#1D9E75',backgroundColor:'transparent',borderWidth:2,borderDash:[4,3],
+    pointRadius:3,pointBackgroundColor:'#1D9E75',tension:0.3,order:0}
+];
+const trendStackedDatasets=stackCats.map(c=>({
+  label:c.label,data:c.data,backgroundColor:c.color,
+  borderWidth:1,borderColor:'#fff',borderSkipped:false
+}));
+
+let trendChart=new Chart('trend',{type:'line',data:{labels:trendLabels,datasets:[trendLineDataset]},
+  options:{responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false}},
+    scales:{x:{grid:{display:false},ticks:{color:tick,font:{size:10}}},
+      y:{grid:{color:grid},border:{display:false},
+        ticks:{color:tick,font:{size:10},callback:v=>'£'+Math.round(v/1000)+'k'}}},
+    interaction:{mode:'index',intersect:false}}});
+
+const trendLegendEl=document.getElementById('trend-legend');
+const trendHintEl=document.getElementById('trend-hint');
+
+const hints={
+  line:'Line: monthly expense total over time.',
+  bar:'Bar: income vs expenses per month, with net saving line.',
+  stacked:'Stacked bar: monthly expenses broken down by category.'
+};
+
+function buildLegend(items){
+  trendLegendEl.innerHTML=items.map(i=>
+    `<span class="legend-item"><span class="legend-swatch" style="background:${i.color}"></span>${i.label}</span>`
+  ).join('');
+}
+
+function switchTrend(type,el){
+  el.closest('.seg-control').querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  trendHintEl.textContent=hints[type];
+  trendChart.destroy();
+  const canvas=document.getElementById('trend');
+
+  if(type==='line'){
+    buildLegend([{label:'Expenses',color:'#D85A30'}]);
+    trendChart=new Chart(canvas,{type:'line',
+      data:{labels:trendLabels,datasets:[trendLineDataset]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false}},
+        scales:{x:{grid:{display:false},ticks:{color:tick,font:{size:10}}},
+          y:{grid:{color:grid},border:{display:false},
+            ticks:{color:tick,font:{size:10},callback:v=>'£'+Math.round(v/1000)+'k'}}},
+        interaction:{mode:'index',intersect:false}}});
+  } else if(type==='bar'){
+    buildLegend([
+      {label:'Income',color:'#534AB7'},
+      {label:'Expenses',color:'#D85A30'},
+      {label:'Net saving',color:'#1D9E75'},
+    ]);
+    trendChart=new Chart(canvas,{type:'bar',
+      data:{labels:trendLabels,datasets:trendBarDatasets},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false}},
+        scales:{x:{grid:{display:false},ticks:{color:tick,font:{size:10}}},
+          y:{grid:{color:grid},border:{display:false},
+            ticks:{color:tick,font:{size:10},callback:v=>'£'+Math.round(v/1000)+'k'}}},
+        interaction:{mode:'index',intersect:false}}});
+  } else {
+    buildLegend(stackCats.map(c=>({label:c.label,color:c.color})));
+    trendChart=new Chart(canvas,{type:'bar',
+      data:{labels:trendLabels,datasets:trendStackedDatasets},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},
+          tooltip:{mode:'index',intersect:false,
+            callbacks:{label:c=>` ${c.dataset.label}: £${c.parsed.y.toFixed(2)}`}}},
+        scales:{
+          x:{stacked:true,grid:{display:false},ticks:{color:tick,font:{size:10}}},
+          y:{stacked:true,grid:{color:grid},border:{display:false},
+            ticks:{color:tick,font:{size:10},callback:v=>'£'+Math.round(v/1000)+'k'}}},
+        interaction:{mode:'index',intersect:false}}});
+  }
+}
+
+// Init legend for default line view
+buildLegend([{label:'Expenses',color:'#D85A30'}]);
+</script>
+</body>
+</html>

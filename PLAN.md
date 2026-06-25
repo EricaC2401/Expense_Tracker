@@ -2,11 +2,12 @@
 
 ## Objective
 
-Build a personal expense tracker for one user.
-The app should be accessible from both MacBook and iPhone through a browser.
-The app should store data in Supabase PostgreSQL and provide CSV export for backup.
+Build a personal finance tracker for one user.
+It should be accessible from both MacBook and iPhone through a browser.
+The app stores live data in Supabase PostgreSQL and provides CSV export as a backup path.
 
-The current stage is expense-only. Income support can be added later if requested.
+The project started as expense-only and later expanded in a few approved areas.
+When scope wording in older milestones differs from newer work, follow the `Current status` section below.
 
 ## How to use this plan
 
@@ -30,7 +31,13 @@ Detailed setup and usage instructions should live in `README.md`.
 
 ## Current status
 
-Current milestone: Payment method enhancement (pre-M14)
+Active work approved right now:
+
+- M16 Finance situation balances, history, transfers, and exchange records: In progress
+- Payment method enhancement (pre-M14): In progress
+- M17 Income page and income tracking: In progress (requested out of sequence, now includes recurring income templates and separate tax-due tracking)
+
+Milestone order reference:
 
 - M0 Project setup: Completed
 - M1 Supabase database setup: Completed
@@ -46,14 +53,18 @@ Current milestone: Payment method enhancement (pre-M14)
 - M11 Keyword-based category rules: Completed
 - M12 Mobile-friendly quick-add page: Completed
 - M13 Recurring monthly fixed expenses: Completed
-- Payment method enhancement (pre-M14): In progress
-- M17 Income page and income tracking: In progress (requested out of sequence, now includes recurring income templates and separate tax-due tracking)
-- M18 Overall dashboard: Not started
 - M14 Deployment: Not started
 - M15 README and usage documentation: Not started
-- M16 Finance situation balances and history: In progress (requested out of sequence)
+- M16 Finance situation balances, history, transfers, and exchange records: In progress
+- M17 Income page and income tracking: In progress (requested out of sequence, now includes recurring income templates and separate tax-due tracking)
+- M18 Overall dashboard: Not started
 
-## V1 scope
+Working rule:
+
+- If no milestone is explicitly chosen by the user, continue one of the items listed under `Active work approved right now`.
+- If that section is ever removed, fall back to the first milestone in milestone order that is not completed.
+
+## Current scope
 
 ### Included
 
@@ -65,7 +76,8 @@ Current milestone: Payment method enhancement (pre-M14)
 - Basic reports
 - Simple app-level password protection before deployment
 - Deployment to Streamlit Community Cloud if suitable
-- Expense-only tracking for the initial version
+- Expense tracking as the original core workflow
+- Approved expansion into income and finance-situation tracking where noted in current milestones
 
 ### Excluded
 
@@ -78,7 +90,7 @@ Current milestone: Payment method enhancement (pre-M14)
 - Advanced duplicate detection
 - SQLite or local PostgreSQL version
 
-## V1 technical direction
+## Technical direction
 
 Use:
 
@@ -110,7 +122,7 @@ iPhone browser
 ```
 
 Supabase PostgreSQL is the single source of truth.
-CSV export is the V1 backup method.
+CSV export is the backup method.
 
 ## Data model direction
 
@@ -130,23 +142,23 @@ Required transaction fields:
 
 Rules:
 
-- Store amounts as positive numbers.
+- Store amounts with their original sign.
 - Default missing or blank categories to `Uncategorised`.
-- The current stage tracks expenses only.
-- Expense reports should treat stored amounts as spending.
+- Expense records may be positive or negative and should flow through reports using their stored sign.
 - `updated_at` should be maintained by a PostgreSQL trigger or explicit application logic. Prefer a trigger for V1.
 
 The exact PostgreSQL schema should be implemented in SQL migration files under `sql/`, not directly in this plan.
 
-Income/tax direction:
+Approved income/tax direction:
 
 - income is tracked separately from expenses
 - tax due is tracked separately on the Income page
 - actual tax paid remains in Expenses as cash-out records
 
-## Target project structure
+## Reference project structure
 
-This is the intended starting structure for V1 and may evolve slightly during implementation.
+This structure is a reference, not a promise that every file remains unchanged forever.
+It may evolve as milestones are completed.
 
 ```text
 expense-tracker/

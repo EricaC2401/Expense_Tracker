@@ -14,6 +14,8 @@ from src.app import (
     _handle_manual_description_change,
     _reset_manual_entry_state,
     _finance_snapshot_row_is_blank,
+    build_exchange_history_rows,
+    build_exchange_record_payload,
     build_finance_snapshot_rows,
     build_finance_snapshot_history_rows,
     build_dashboard_expense_breakout_rows,
@@ -23,9 +25,11 @@ from src.app import (
     format_finance_history_account_option,
     format_finance_amount,
     get_fallback_reference_fx_rates,
+    get_exchange_default_account_index,
     get_finance_history_account_options,
     parse_reference_rate_inputs,
     parse_gbp_hkd_rate_text,
+    format_exchange_rate,
     format_payment_method_option,
     get_finance_deduction_amount,
     get_payment_method_options,
@@ -38,11 +42,16 @@ from src.app import (
     build_recurring_expense_payload,
     find_similar_recurring_templates,
     format_recurring_expense_label,
+    get_manual_category_options,
     get_recurring_preview_text,
     get_manual_category_value,
 )
-from src.db import StoredFinanceSnapshotEntry, StoredRecurringExpense
-from src.models import validate_recurring_expense_template
+from src.db import StoredExchangeRecord, StoredFinanceSnapshotEntry, StoredRecurringExpense
+from src.models import (
+    ValidationError,
+    validate_expense_transaction,
+    validate_recurring_expense_template,
+)
 from src.reports import ExpenseBreakoutSummary, IncomeReportSummary, OverallDashboardSummary
 
 
@@ -185,7 +194,7 @@ def test_get_report_period_bounds_month_defaults_to_current_month(
         assert end_date == next_month_start.fromordinal(next_month_start.toordinal() - 1)
 
 
-def test_build_dashboard_expense_breakout_rows_adds_other_and_total_rows() -> None:
+def test_build_dashboard_expense_breakout_rows_formats_requested_summary_rows() -> None:
     summary = OverallDashboardSummary(
         start_date=date(2026, 1, 1),
         end_date=date(2026, 12, 31),
@@ -197,6 +206,8 @@ def test_build_dashboard_expense_breakout_rows_adds_other_and_total_rows() -> No
         net_saving_gbp=Decimal("850.00"),
         total_tax_amount_gbp=Decimal("40.00"),
         net_saving_after_tax_amount_gbp=Decimal("810.00"),
+        annualised_monthly_expense_gbp=Decimal("150.00"),
+        annualised_monthly_net_saving_gbp=Decimal("850.00"),
         expense_breakout=ExpenseBreakoutSummary(
             planned_irregular_gbp=Decimal("25.00"),
             planned_irregular_hkd=Decimal("10.00"),
@@ -205,39 +216,69 @@ def test_build_dashboard_expense_breakout_rows_adds_other_and_total_rows() -> No
             tax_gbp=Decimal("40.00"),
             tax_hkd=Decimal("5.00"),
         ),
+        cash_inflow_gbp=Decimal("1,000.00".replace(",", "")),
+        cash_outflow_gbp=Decimal("190.00"),
+        net_cash_flow_gbp=Decimal("810.00"),
         finance_currency_summary=[],
     )
 
-    rows = build_dashboard_expense_breakout_rows(summary)
+    rows = build_dashboard_expense_breakout_rows(
+        summary,
+        housing_expense_gbp=Decimal("50.00"),
+        housing_expense_hkd=Decimal("15.00"),
+        family_expense_gbp=Decimal("20.00"),
+        family_expense_hkd=Decimal("5.00"),
+        uk_settlement_gbp=Decimal("10.00"),
+        uk_settlement_hkd=Decimal("0.00"),
+        large_one_off_gbp=Decimal("35.00"),
+        large_one_off_hkd=Decimal("20.00"),
+        travel_expense_gbp=Decimal("15.00"),
+        travel_expense_hkd=Decimal("5.00"),
+    )
 
     assert rows == [
         {
-            "Expense Type": "Annual / Planned Irregular",
-            "Amount (GBP)": "25.00",
-            "Amount (HKD)": "10.00",
+            "Expense Type": "Housing",
+            "Amount (GBP)": "50.00",
+            "Amount (HKD)": "15.00",
         },
         {
-            "Expense Type": "One-off / Exceptional",
+            "Expense Type": "Regular non-housing expenses",
+            "Amount (GBP)": "20.00",
+            "Amount (HKD)": "15.00",
+        },
+        {
+            "Expense Type": "Family",
+            "Amount (GBP)": "20.00",
+            "Amount (HKD)": "5.00",
+        },
+        {
+            "Expense Type": "UK Settlement",
+            "Amount (GBP)": "10.00",
+            "Amount (HKD)": "0.00",
+        },
+        {
+            "Expense Type": "Large One-off",
             "Amount (GBP)": "35.00",
             "Amount (HKD)": "20.00",
         },
         {
-            "Expense Type": "Tax",
-            "Amount (GBP)": "40.00",
+            "Expense Type": "Travel",
+            "Amount (GBP)": "15.00",
             "Amount (HKD)": "5.00",
         },
         {
-            "Expense Type": "Other Expense",
-            "Amount (GBP)": "90.00",
-            "Amount (HKD)": "30.00",
-        },
-        {
-            "Expense Type": "Total Expense Exclude Tax",
+            "Expense Type": "Total before tax",
             "Amount (GBP)": "150.00",
             "Amount (HKD)": "60.00",
         },
         {
-            "Expense Type": "Total Expense Include Tax",
+            "Expense Type": "Tax payment",
+            "Amount (GBP)": "40.00",
+            "Amount (HKD)": "5.00",
+        },
+        {
+            "Expense Type": "Total including tax",
             "Amount (GBP)": "190.00",
             "Amount (HKD)": "65.00",
         },
@@ -249,6 +290,7 @@ def test_get_manual_category_value_prefers_keyword_suggestion_before_override() 
         description="veg, pork",
         current_category="Uncategorised",
         category_overridden=False,
+        allowed_categories=["Food", "Drink", "Uncategorised"],
     )
 
     assert visible_category == "Food"
@@ -260,10 +302,35 @@ def test_get_manual_category_value_keeps_manual_override() -> None:
         description="veg, pork",
         current_category="Drink",
         category_overridden=True,
+        allowed_categories=["Food", "Drink", "Uncategorised"],
     )
 
     assert visible_category == "Drink"
     assert suggested_category == "Food"
+
+
+def test_get_manual_category_value_drops_suggestion_not_allowed_for_group() -> None:
+    visible_category, suggested_category = get_manual_category_value(
+        description="veg, pork",
+        current_category="Uncategorised",
+        category_overridden=False,
+        allowed_categories=["Travel", "Trip", "Uncategorised"],
+    )
+
+    assert visible_category == "Uncategorised"
+    assert suggested_category is None
+
+
+def test_get_manual_category_options_for_living_include_learning_to_drive() -> None:
+    options = get_manual_category_options([], group_name="Living")
+
+    assert "Learning to Drive" in options
+
+
+def test_get_manual_category_options_for_travel_use_travel_categories() -> None:
+    options = get_manual_category_options([], group_name="Travel")
+
+    assert options == ["Travel", "Trip", "Flight Ticket", "Uncategorised"]
 
 
 def test_manual_entry_reset_is_deferred_until_next_rerun(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -707,6 +774,176 @@ def test_get_finance_history_account_options_returns_unique_accounts_in_order() 
     assert format_finance_history_account_option(options[0]) == "IBKR / GBP / GBP"
 
 
+def test_build_exchange_record_payload_normalizes_form_values() -> None:
+    payload = build_exchange_record_payload(
+        exchange_date=date(2026, 6, 22),
+        from_account_option=("HSBC HK", "HKD", "HKD"),
+        from_amount=" 7800.00 ",
+        fee_amount=" 25.00 ",
+        to_account_option=("Monzo", "Current", "GBP"),
+        to_amount=" 765.40 ",
+        notes="  Summer transfer  ",
+    )
+
+    assert payload == {
+        "exchange_date": "2026-06-22",
+        "from_institution": "HSBC HK",
+        "from_account": "HKD",
+        "from_currency": "HKD",
+        "from_amount": "7800.00",
+        "fee_amount": "25.00",
+        "to_institution": "Monzo",
+        "to_account": "Current",
+        "to_currency": "GBP",
+        "to_amount": "765.40",
+        "notes": "  Summer transfer  ",
+    }
+
+
+def test_get_exchange_default_account_index_prefers_requested_currency() -> None:
+    options = [
+        ("Monzo", "Current", "GBP"),
+        ("HSBC HK", "HKD", "HKD"),
+        ("IBKR", "USD", "USD"),
+    ]
+
+    assert get_exchange_default_account_index(options, preferred_currency="HKD") == 1
+    assert (
+        get_exchange_default_account_index(
+            options,
+            preferred_currency="GBP",
+            exclude_option=("Monzo", "Current", "GBP"),
+        )
+        == 1
+    )
+
+
+def test_get_exchange_default_account_index_prefers_exact_ibkr_option() -> None:
+    options = [
+        ("Monzo", "Current", "GBP"),
+        ("HSBC HK", "HKD", "HKD"),
+        ("IBKR", "GBP", "GBP"),
+        ("IBKR", "HKD", "HKD"),
+    ]
+
+    assert (
+        get_exchange_default_account_index(
+            options,
+            preferred_currency="HKD",
+            preferred_option=("IBKR", "HKD", "HKD"),
+        )
+        == 3
+    )
+    assert (
+        get_exchange_default_account_index(
+            options,
+            preferred_currency="GBP",
+            preferred_option=("IBKR", "GBP", "GBP"),
+        )
+        == 2
+    )
+
+
+def test_build_exchange_history_rows_formats_saved_exchange() -> None:
+    exchange = StoredExchangeRecord(
+        id=3,
+        exchange_date=date(2026, 6, 22),
+        from_institution="HSBC HK",
+        from_account="HKD",
+        from_currency="HKD",
+        from_amount=Decimal("7800.00"),
+        fee_amount=Decimal("25.00"),
+        to_institution="Monzo",
+        to_account="Current",
+        to_currency="GBP",
+        to_amount=Decimal("765.40"),
+        display_rate_value=Decimal("10.53484599"),
+        display_rate_base_currency="GBP",
+        display_rate_quote_currency="HKD",
+        notes="Summer transfer",
+        created_at=datetime(2026, 6, 22, 9, 0, 0),
+        updated_at=datetime(2026, 6, 22, 9, 0, 0),
+    )
+
+    rows = build_exchange_history_rows([exchange])
+
+    assert rows == [
+        {
+            "Delete": False,
+            "Date": date(2026, 6, 22),
+            "Type": "Exchange",
+            "From Account": "HSBC HK / HKD / HKD",
+            "Paid Amount": "7,800.00",
+            "Fee": "25.00",
+            "To Account": "Monzo / Current / GBP",
+            "Received Amount": "765.40",
+            "Rate": "1 GBP = 10.5348 HKD",
+            "Notes": "Summer transfer",
+        }
+    ]
+
+
+def test_build_exchange_history_rows_formats_same_currency_transfer() -> None:
+    exchange = StoredExchangeRecord(
+        id=4,
+        exchange_date=date(2026, 6, 22),
+        from_institution="Monzo",
+        from_account="Current",
+        from_currency="GBP",
+        from_amount=Decimal("100.00"),
+        fee_amount=Decimal("2.50"),
+        to_institution="HSBC UK",
+        to_account="Savings",
+        to_currency="GBP",
+        to_amount=Decimal("100.00"),
+        display_rate_value=Decimal("1"),
+        display_rate_base_currency="GBP",
+        display_rate_quote_currency="GBP",
+        notes="Move to savings",
+        created_at=datetime(2026, 6, 22, 9, 0, 0),
+        updated_at=datetime(2026, 6, 22, 9, 0, 0),
+    )
+
+    rows = build_exchange_history_rows([exchange])
+
+    assert rows == [
+        {
+            "Delete": False,
+            "Date": date(2026, 6, 22),
+            "Type": "Transfer",
+            "From Account": "Monzo / Current / GBP",
+            "Paid Amount": "100.00",
+            "Fee": "2.50",
+            "To Account": "HSBC UK / Savings / GBP",
+            "Received Amount": "100.00",
+            "Rate": "Same-currency transfer (GBP)",
+            "Notes": "Move to savings",
+        }
+    ]
+
+
+def test_format_exchange_rate_renders_compact_label() -> None:
+    assert (
+        format_exchange_rate(
+            Decimal("10.19074993"),
+            base_currency="GBP",
+            quote_currency="HKD",
+        )
+        == "1 GBP = 10.1907 HKD"
+    )
+
+
+def test_format_exchange_rate_handles_same_currency_transfer() -> None:
+    assert (
+        format_exchange_rate(
+            Decimal("1"),
+            base_currency="GBP",
+            quote_currency="GBP",
+        )
+        == "Same-currency transfer (GBP)"
+    )
+
+
 def test_parse_gbp_hkd_rate_text_accepts_blank_and_positive_values() -> None:
     assert parse_gbp_hkd_rate_text("") is None
     assert str(parse_gbp_hkd_rate_text(" 10.25 ")) == "10.25"
@@ -803,10 +1040,10 @@ def test_convert_gbp_quote_rates_to_hkd_rates_derives_visible_hkd_rates() -> Non
     )
 
     assert rates_to_hkd["GBP"] == Decimal("10.3732")
-    assert rates_to_hkd["USD"] == Decimal("7.839506536688581576361369304")
-    assert rates_to_hkd["EUR"] == Decimal("8.989774696707105719237435009")
-    assert rates_to_hkd["CAD"] == Decimal("5.538018795386587783000854336")
-    assert rates_to_hkd["JPY"] == Decimal("0.04861855936840759082635245894")
+    assert rates_to_hkd["USD"] == Decimal("7.838887629411320184387516058")
+    assert rates_to_hkd["EUR"] == Decimal("8.988908145580589254766031196")
+    assert rates_to_hkd["CAD"] == Decimal("5.538872276804784280222127296")
+    assert rates_to_hkd["JPY"] == Decimal("0.04861904969471312595292296891")
 
 
 def test_app_imports_when_run_from_src_directory(

@@ -48,6 +48,8 @@ streamlit run src/app.py
    Then run [sql/009_drop_cash_columns.sql](/Users/ericachung_1/Desktop/Erica/Vibe%20Codeing/Expense%20Marker/sql/009_drop_cash_columns.sql) to remove the old `cash` columns from Supabase.
    To add the separate current balance snapshot page, run [sql/010_finance_snapshot_entries.sql](/Users/ericachung_1/Desktop/Erica/Vibe%20Codeing/Expense%20Marker/sql/010_finance_snapshot_entries.sql) as well.
    If you already created the finance snapshot table before the date column was added, also run [sql/011_add_finance_snapshot_date.sql](/Users/ericachung_1/Desktop/Erica/Vibe%20Codeing/Expense%20Marker/sql/011_add_finance_snapshot_date.sql).
+   To enable saved transfer/exchange records that also adjust Finance Situation balances, run [sql/022_create_exchange_records.sql](/Users/ericachung_1/Desktop/Erica/Vibe%20Codeing/Expense%20Marker/sql/022_create_exchange_records.sql).
+   If you already enabled transfer/exchange records before fees were added, also run [sql/023_add_exchange_fee_amount.sql](/Users/ericachung_1/Desktop/Erica/Vibe%20Codeing/Expense%20Marker/sql/023_add_exchange_fee_amount.sql).
 3. Copy [.streamlit/secrets.toml.example](/Users/ericachung_1/Desktop/Erica/Vibe%20Codeing/Expense%20Marker/.streamlit/secrets.toml.example) to `.streamlit/secrets.toml`.
 4. Fill in the `supabase` values with your own database credentials.
 
@@ -58,6 +60,7 @@ Notes:
 - The database schema is expense-only for the current stage and does not include `transaction_type`.
 - New expenses can store an optional `payment_method` such as `Monzo`, `HSBC`, or `Cash`.
 - The app also includes a separate `Finance Situation` page for current balance snapshot rows by institution, account, currency, and snapshot date.
+- The `Finance Situation` page can also store transfers and exchange records, including optional receiving-side fees in the destination currency, and apply the paired balance adjustments there without affecting expense or income reports.
 - Row Level Security is enabled on `public.transactions`, with no public policies added by default.
 
 ## Notes

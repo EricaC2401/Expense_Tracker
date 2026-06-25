@@ -11,20 +11,25 @@ from src.db import (
 )
 from src.reports import (
     build_category_spending_report,
+    build_daily_category_trend_report,
+    build_daily_trend_report,
     build_expense_breakout_summary,
     build_expense_report_summary,
+    build_expense_tax_split_summary,
     build_finance_bicurrency_totals,
     build_finance_currency_summary,
     build_income_report_summary,
     build_finance_institution_summary,
     build_living_classification_report,
     build_largest_expenses_report,
+    build_monthly_category_trend_report,
     build_monthly_trend_report,
     build_overall_dashboard_summary,
     filter_tax_payment_transactions,
     filter_income_transactions_by_date_range,
     filter_tax_due_entries_by_date_range,
     filter_transactions_by_date_range,
+    get_dashboard_chart_bucket,
     get_living_classification,
 )
 
@@ -391,6 +396,36 @@ def test_build_expense_report_summary_prefers_existing_gbp_amount_over_hkd_conve
     assert summary.necessaries_total_hkd == Decimal("1000.00")
 
 
+def test_build_expense_tax_split_summary_separates_tax_payment_rows() -> None:
+    tax_payment = StoredExpenseTransaction(
+        id=11,
+        transaction_date=date(2026, 5, 22),
+        description="Tax Payment-1",
+        category="Tax",
+        group_name="TaxPayment",
+        amount_gbp=Decimal("20.00"),
+        amount_hkd=None,
+        tax_deductable=False,
+        payment_method=None,
+        notes=None,
+        created_at=datetime(2026, 6, 4, 12, 0, 0),
+        updated_at=datetime(2026, 6, 4, 12, 0, 0),
+    )
+    transactions = [
+        make_transaction(transaction_id=1, transaction_date=date(2026, 5, 1), category="Food", amount_gbp="10.00"),
+        make_transaction(transaction_id=2, transaction_date=date(2026, 5, 10), category="Drink", amount_gbp="5.00"),
+        tax_payment,
+    ]
+
+    summary = build_expense_tax_split_summary(transactions)
+
+    assert summary.expense_ex_tax_gbp == Decimal("15.00")
+    assert summary.expense_ex_tax_hkd == Decimal("0.00")
+    assert summary.tax_payments_gbp == Decimal("20.00")
+    assert summary.tax_payments_hkd == Decimal("0.00")
+    assert summary.transaction_count == 3
+
+
 def test_build_category_spending_report_groups_uncategorised() -> None:
     transactions = [
         make_transaction(transaction_id=1, transaction_date=date(2026, 5, 1), category="Uncategorised", amount_gbp="10.00"),
@@ -410,6 +445,31 @@ def test_build_category_spending_report_groups_uncategorised() -> None:
         "amount_gbp": Decimal("10.00"),
         "amount_hkd": Decimal("0.00"),
     }
+
+
+def test_build_category_spending_report_converts_hkd_to_gbp_with_month_rates() -> None:
+    transactions = [
+        make_transaction(
+            transaction_id=1,
+            transaction_date=date(2026, 5, 1),
+            category="Food",
+            amount_gbp="0.00",
+            amount_hkd="120.00",
+        ),
+    ]
+
+    rows = build_category_spending_report(
+        transactions,
+        month_rates_by_month={date(2026, 5, 1): {"HKD": Decimal("12.00")}},
+    )
+
+    assert rows == [
+        {
+            "category": "Food",
+            "amount_gbp": Decimal("10.00"),
+            "amount_hkd": Decimal("120.00"),
+        }
+    ]
 
 
 def test_build_largest_expenses_report_orders_descending() -> None:
@@ -464,8 +524,230 @@ def test_build_monthly_trend_report_includes_hkd_totals() -> None:
     ]
 
 
+def test_build_monthly_trend_report_converts_hkd_to_gbp_with_month_rates() -> None:
+    transactions = [
+        make_transaction(
+            transaction_id=1,
+            transaction_date=date(2026, 5, 1),
+            category="Food",
+            amount_gbp="0.00",
+            amount_hkd="120.00",
+        ),
+        make_transaction(
+            transaction_id=2,
+            transaction_date=date(2026, 6, 10),
+            category="Drink",
+            amount_gbp="0.00",
+            amount_hkd="130.00",
+        ),
+    ]
+
+    trend = build_monthly_trend_report(
+        transactions,
+        month_rates_by_month={
+            date(2026, 5, 1): {"HKD": Decimal("12.00")},
+            date(2026, 6, 1): {"HKD": Decimal("13.00")},
+        },
+    )
+
+    assert trend == [
+        {"month": "2026-05", "amount_gbp": Decimal("10.00"), "amount_hkd": Decimal("120.00")},
+        {"month": "2026-06", "amount_gbp": Decimal("10.00"), "amount_hkd": Decimal("130.00")},
+    ]
+
+
+def test_build_daily_trend_report_groups_by_day() -> None:
+    transactions = [
+        make_transaction(transaction_id=1, transaction_date=date(2026, 6, 1), category="Food", amount_gbp="10.00"),
+        make_transaction(transaction_id=2, transaction_date=date(2026, 6, 1), category="Drink", amount_gbp="5.00"),
+        make_transaction(transaction_id=3, transaction_date=date(2026, 6, 11), category="Food", amount_gbp="7.00"),
+    ]
+
+    trend = build_daily_trend_report(transactions)
+
+    assert trend == [
+        {"day": "2026-06-01", "amount_gbp": Decimal("15.00"), "amount_hkd": Decimal("0.00")},
+        {"day": "2026-06-11", "amount_gbp": Decimal("7.00"), "amount_hkd": Decimal("0.00")},
+    ]
+
+
+def test_build_daily_trend_report_converts_hkd_to_gbp_with_month_rates() -> None:
+    transactions = [
+        make_transaction(
+            transaction_id=1,
+            transaction_date=date(2026, 6, 1),
+            category="Food",
+            amount_gbp="0.00",
+            amount_hkd="120.00",
+        ),
+        make_transaction(
+            transaction_id=2,
+            transaction_date=date(2026, 6, 1),
+            category="Drink",
+            amount_gbp="5.00",
+        ),
+    ]
+
+    trend = build_daily_trend_report(
+        transactions,
+        month_rates_by_month={date(2026, 6, 1): {"HKD": Decimal("12.00")}},
+    )
+
+    assert trend == [
+        {"day": "2026-06-01", "amount_gbp": Decimal("15.00"), "amount_hkd": Decimal("120.00")},
+    ]
+
+
+def test_get_dashboard_chart_bucket_uses_living_classification_and_group_labels() -> None:
+    assert get_dashboard_chart_bucket("Food", "Living") == "Necessaries"
+    assert get_dashboard_chart_bucket("Car Related: Fuel", "Living") == "All Car Expenses"
+    assert get_dashboard_chart_bucket("Tax", "TaxPayment") == "Tax"
+    assert get_dashboard_chart_bucket("Hotel", "Travel") == "Travel"
+
+
+def test_build_daily_category_trend_report_uses_dashboard_buckets() -> None:
+    transactions = [
+        make_transaction(transaction_id=1, transaction_date=date(2026, 6, 1), category="Food", amount_gbp="10.00"),
+        make_transaction(
+            transaction_id=2,
+            transaction_date=date(2026, 6, 1),
+            category="Car Related: Fuel",
+            amount_gbp="5.00",
+        ),
+        StoredExpenseTransaction(
+            id=3,
+            transaction_date=date(2026, 6, 1),
+            description="Tax payment",
+            category="Tax",
+            group_name="TaxPayment",
+            amount_gbp=Decimal("7.00"),
+            amount_hkd=None,
+            tax_deductable=False,
+            payment_method="Monzo",
+            notes=None,
+            created_at=datetime(2026, 6, 4, 12, 0, 0),
+            updated_at=datetime(2026, 6, 4, 12, 0, 0),
+        ),
+        StoredExpenseTransaction(
+            id=4,
+            transaction_date=date(2026, 6, 2),
+            description="Train",
+            category="Transport",
+            group_name="Travel",
+            amount_gbp=Decimal("12.00"),
+            amount_hkd=None,
+            tax_deductable=False,
+            payment_method="Monzo",
+            notes=None,
+            created_at=datetime(2026, 6, 4, 12, 0, 0),
+            updated_at=datetime(2026, 6, 4, 12, 0, 0),
+        ),
+    ]
+
+    trend = build_daily_category_trend_report(transactions)
+
+    assert trend == [
+        {"day": "2026-06-01", "category": "All Car Expenses", "amount_gbp": Decimal("5.00")},
+        {"day": "2026-06-01", "category": "Necessaries", "amount_gbp": Decimal("10.00")},
+        {"day": "2026-06-01", "category": "Tax", "amount_gbp": Decimal("7.00")},
+        {"day": "2026-06-02", "category": "Travel", "amount_gbp": Decimal("12.00")},
+    ]
+
+
+def test_build_daily_category_trend_report_converts_hkd_to_gbp_with_month_rates() -> None:
+    transactions = [
+        make_transaction(
+            transaction_id=1,
+            transaction_date=date(2026, 6, 1),
+            category="Food",
+            amount_gbp="0.00",
+            amount_hkd="120.00",
+        ),
+    ]
+
+    trend = build_daily_category_trend_report(
+        transactions,
+        month_rates_by_month={date(2026, 6, 1): {"HKD": Decimal("12.00")}},
+    )
+
+    assert trend == [
+        {"day": "2026-06-01", "category": "Necessaries", "amount_gbp": Decimal("10.00")},
+    ]
+
+
+def test_build_monthly_category_trend_report_uses_dashboard_buckets() -> None:
+    transactions = [
+        make_transaction(transaction_id=1, transaction_date=date(2026, 6, 1), category="Food", amount_gbp="10.00"),
+        make_transaction(
+            transaction_id=2,
+            transaction_date=date(2026, 6, 2),
+            category="Car Related: Fuel",
+            amount_gbp="5.00",
+        ),
+        StoredExpenseTransaction(
+            id=3,
+            transaction_date=date(2026, 7, 1),
+            description="Tax payment",
+            category="Tax",
+            group_name="TaxPayment",
+            amount_gbp=Decimal("7.00"),
+            amount_hkd=None,
+            tax_deductable=False,
+            payment_method="Monzo",
+            notes=None,
+            created_at=datetime(2026, 6, 4, 12, 0, 0),
+            updated_at=datetime(2026, 6, 4, 12, 0, 0),
+        ),
+        StoredExpenseTransaction(
+            id=4,
+            transaction_date=date(2026, 7, 2),
+            description="Train",
+            category="Transport",
+            group_name="Travel",
+            amount_gbp=Decimal("12.00"),
+            amount_hkd=None,
+            tax_deductable=False,
+            payment_method="Monzo",
+            notes=None,
+            created_at=datetime(2026, 6, 4, 12, 0, 0),
+            updated_at=datetime(2026, 6, 4, 12, 0, 0),
+        ),
+    ]
+
+    trend = build_monthly_category_trend_report(transactions)
+
+    assert trend == [
+        {"month": "2026-06", "category": "All Car Expenses", "amount_gbp": Decimal("5.00")},
+        {"month": "2026-06", "category": "Necessaries", "amount_gbp": Decimal("10.00")},
+        {"month": "2026-07", "category": "Tax", "amount_gbp": Decimal("7.00")},
+        {"month": "2026-07", "category": "Travel", "amount_gbp": Decimal("12.00")},
+    ]
+
+
+def test_build_monthly_category_trend_report_converts_hkd_to_gbp_with_month_rates() -> None:
+    transactions = [
+        make_transaction(
+            transaction_id=1,
+            transaction_date=date(2026, 6, 1),
+            category="Food",
+            amount_gbp="0.00",
+            amount_hkd="120.00",
+        ),
+    ]
+
+    trend = build_monthly_category_trend_report(
+        transactions,
+        month_rates_by_month={date(2026, 6, 1): {"HKD": Decimal("12.00")}},
+    )
+
+    assert trend == [
+        {"month": "2026-06", "category": "Necessaries", "amount_gbp": Decimal("10.00")},
+    ]
+
+
 def test_get_living_classification_only_applies_to_living_group() -> None:
     assert get_living_classification("Food", "Living") == "Necessaries"
+    assert get_living_classification("Learning to Drive", "Living") == "Other"
     assert get_living_classification("Food", "Family") is None
 
 
@@ -1017,6 +1299,9 @@ def test_build_overall_dashboard_summary_calculates_dashboard_metrics() -> None:
     assert summary.annualised_monthly_net_saving_gbp is None
     assert summary.total_tax_amount_gbp == Decimal("50.00")
     assert summary.net_saving_after_tax_amount_gbp == Decimal("115.00")
+    assert summary.cash_inflow_gbp == Decimal("295.00")
+    assert summary.cash_outflow_gbp == Decimal("150.00")
+    assert summary.net_cash_flow_gbp == Decimal("145.00")
     assert summary.expense_breakout.planned_irregular_gbp == Decimal("100.00")
     assert summary.expense_breakout.tax_gbp == Decimal("20.00")
     assert summary.finance_currency_summary == [
@@ -1065,6 +1350,9 @@ def test_build_overall_dashboard_summary_uses_tax_paid_for_calendar_year() -> No
     assert summary.annualised_monthly_net_saving_gbp is None
     assert summary.total_tax_amount_gbp == Decimal("20.00")
     assert summary.net_saving_after_tax_amount_gbp == Decimal("-20.00")
+    assert summary.cash_inflow_gbp == Decimal("0.00")
+    assert summary.cash_outflow_gbp == Decimal("20.00")
+    assert summary.net_cash_flow_gbp == Decimal("-20.00")
 
 
 def test_build_overall_dashboard_summary_uses_tax_paid_for_custom_period() -> None:
@@ -1108,6 +1396,9 @@ def test_build_overall_dashboard_summary_uses_tax_paid_for_custom_period() -> No
     assert summary.annualised_monthly_net_saving_gbp is None
     assert summary.total_tax_amount_gbp == Decimal("20.00")
     assert summary.net_saving_after_tax_amount_gbp == Decimal("-20.00")
+    assert summary.cash_inflow_gbp == Decimal("0.00")
+    assert summary.cash_outflow_gbp == Decimal("20.00")
+    assert summary.net_cash_flow_gbp == Decimal("-20.00")
 
 
 def test_build_overall_dashboard_summary_uses_monthly_financial_year_tax_share() -> None:
@@ -1133,6 +1424,128 @@ def test_build_overall_dashboard_summary_uses_monthly_financial_year_tax_share()
     assert summary.net_saving_after_tax_amount_gbp == Decimal("-100.00")
     assert summary.annualised_monthly_expense_gbp == Decimal("0.00")
     assert summary.annualised_monthly_net_saving_gbp == Decimal("0.00")
+    assert summary.cash_inflow_gbp == Decimal("0.00")
+    assert summary.cash_outflow_gbp == Decimal("0.00")
+    assert summary.net_cash_flow_gbp == Decimal("0.00")
+
+
+def test_build_overall_dashboard_summary_cash_flow_uses_all_period_income_and_expenses() -> None:
+    linked_income = make_income(
+        income_id=1,
+        income_date=date(2026, 6, 1),
+        currency="GBP",
+        gross_amount="1000.00",
+    )
+    unlinked_income = StoredIncomeTransaction(
+        id=2,
+        income_date=date(2026, 6, 2),
+        description="Unlinked income",
+        source="Client",
+        currency="GBP",
+        gross_amount=Decimal("300.00"),
+        gross_amount_gbp=Decimal("300.00"),
+        fx_rate_to_gbp=Decimal("1.00000000"),
+        is_taxable=True,
+        payment_account=None,
+        notes=None,
+        created_at=datetime(2026, 6, 19, 9, 0, 0),
+        updated_at=datetime(2026, 6, 19, 9, 0, 0),
+    )
+    linked_expense = StoredExpenseTransaction(
+        id=3,
+        transaction_date=date(2026, 6, 3),
+        description="Groceries",
+        category="Food",
+        group_name="Living",
+        amount_gbp=Decimal("120.00"),
+        amount_hkd=None,
+        tax_deductable=False,
+        payment_method="Monzo Current",
+        notes=None,
+        created_at=datetime(2026, 6, 4, 12, 0, 0),
+        updated_at=datetime(2026, 6, 4, 12, 0, 0),
+    )
+    linked_tax = StoredExpenseTransaction(
+        id=4,
+        transaction_date=date(2026, 6, 4),
+        description="Tax Payment-1",
+        category="Tax",
+        group_name="TaxPayment",
+        amount_gbp=Decimal("80.00"),
+        amount_hkd=None,
+        tax_deductable=False,
+        payment_method="Monzo Current",
+        notes=None,
+        created_at=datetime(2026, 6, 4, 12, 0, 0),
+        updated_at=datetime(2026, 6, 4, 12, 0, 0),
+    )
+    unlinked_expense = StoredExpenseTransaction(
+        id=5,
+        transaction_date=date(2026, 6, 5),
+        description="Cash-only expense",
+        category="Travel",
+        group_name="Travel",
+        amount_gbp=Decimal("50.00"),
+        amount_hkd=None,
+        tax_deductable=False,
+        payment_method=None,
+        notes=None,
+        created_at=datetime(2026, 6, 4, 12, 0, 0),
+        updated_at=datetime(2026, 6, 4, 12, 0, 0),
+    )
+
+    summary = build_overall_dashboard_summary(
+        period_mode="Custom",
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 6, 30),
+        incomes=[linked_income, unlinked_income],
+        tax_due_entries=[],
+        tax_payments=[linked_tax],
+        expenses=[linked_expense, linked_tax, unlinked_expense],
+        finance_entries=[],
+    )
+
+    assert summary.cash_inflow_gbp == Decimal("1300.00")
+    assert summary.cash_outflow_gbp == Decimal("250.00")
+    assert summary.net_cash_flow_gbp == Decimal("1050.00")
+
+
+def test_build_overall_dashboard_summary_cash_flow_supports_negative_net() -> None:
+    linked_income = make_income(
+        income_id=1,
+        income_date=date(2026, 6, 1),
+        currency="GBP",
+        gross_amount="100.00",
+    )
+    linked_expense = StoredExpenseTransaction(
+        id=3,
+        transaction_date=date(2026, 6, 3),
+        description="Rent",
+        category="Housing",
+        group_name="Living",
+        amount_gbp=Decimal("250.00"),
+        amount_hkd=None,
+        tax_deductable=False,
+        payment_method="Monzo Current",
+        notes=None,
+        created_at=datetime(2026, 6, 4, 12, 0, 0),
+        updated_at=datetime(2026, 6, 4, 12, 0, 0),
+    )
+
+    summary = build_overall_dashboard_summary(
+        period_mode="Custom",
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 6, 30),
+        incomes=[linked_income],
+        tax_due_entries=[],
+        tax_payments=[],
+        expenses=[linked_expense],
+        finance_entries=[],
+    )
+
+    assert summary.cash_inflow_gbp == Decimal("100.00")
+    assert summary.cash_outflow_gbp == Decimal("250.00")
+    assert summary.net_cash_flow_gbp == Decimal("-150.00")
 
 
 def test_build_overall_dashboard_summary_calculates_taxable_expense_with_housing_ratio() -> None:

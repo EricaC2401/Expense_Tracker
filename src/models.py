@@ -110,6 +110,26 @@ class FinanceSnapshotEntry:
     notes: str | None
 
 
+@dataclass(frozen=True)
+class ExchangeRecord:
+    """Validated finance-only transfer or exchange record ready for storage."""
+
+    exchange_date: date
+    from_institution: str
+    from_account: str
+    from_currency: str
+    from_amount: Decimal
+    fee_amount: Decimal | None
+    to_institution: str
+    to_account: str
+    to_currency: str
+    to_amount: Decimal
+    display_rate_value: Decimal
+    display_rate_base_currency: str
+    display_rate_quote_currency: str
+    notes: str | None
+
+
 def _require_field(data: dict[str, Any], field_name: str) -> Any:
     value = data.get(field_name)
     if value is None:
@@ -245,11 +265,6 @@ def validate_expense_transaction(data: dict[str, Any]) -> ExpenseTransaction:
 
     if amount_gbp is None:
         amount_gbp = Decimal("0.00")
-    if amount_gbp < 0:
-        raise ValidationError("amount_gbp must be zero or greater.")
-    if amount_hkd is not None and amount_hkd < 0:
-        raise ValidationError("amount_hkd must be zero or greater.")
-
     return ExpenseTransaction(
         transaction_date=transaction_date,
         description=description,
@@ -299,6 +314,120 @@ def validate_finance_snapshot_entry(data: dict[str, Any]) -> FinanceSnapshotEntr
         currency=currency.upper(),
         balance=balance,
         account_type=account_type,
+        notes=notes,
+    )
+
+
+def validate_exchange_record(data: dict[str, Any]) -> ExchangeRecord:
+    """Validate and normalize one finance transfer or exchange record."""
+
+    exchange_date = _parse_date(
+        _require_field(data, "exchange_date"),
+        "exchange_date",
+    )
+    from_institution = _normalize_text(
+        _require_field(data, "from_institution"),
+        "from_institution",
+        required=True,
+    )
+    from_account = _normalize_text(
+        _require_field(data, "from_account"),
+        "from_account",
+        required=True,
+    )
+    from_currency = _normalize_text(
+        _require_field(data, "from_currency"),
+        "from_currency",
+        required=True,
+    )
+    from_amount = _parse_decimal(
+        _require_field(data, "from_amount"),
+        "from_amount",
+        required=True,
+    )
+    fee_amount = _parse_decimal(
+        data.get("fee_amount"),
+        "fee_amount",
+        required=False,
+    )
+    to_institution = _normalize_text(
+        _require_field(data, "to_institution"),
+        "to_institution",
+        required=True,
+    )
+    to_account = _normalize_text(
+        _require_field(data, "to_account"),
+        "to_account",
+        required=True,
+    )
+    to_currency = _normalize_text(
+        _require_field(data, "to_currency"),
+        "to_currency",
+        required=True,
+    )
+    to_amount = _parse_decimal(
+        _require_field(data, "to_amount"),
+        "to_amount",
+        required=True,
+    )
+    notes = _normalize_text(data.get("notes"), "notes")
+
+    if from_amount is None:
+        raise ValidationError("from_amount is required.")
+    if from_amount <= 0:
+        raise ValidationError("from_amount must be greater than zero.")
+    if fee_amount is not None and fee_amount < 0:
+        raise ValidationError("fee_amount must be zero or greater.")
+    if to_amount is None:
+        raise ValidationError("to_amount is required.")
+    if to_amount <= 0:
+        raise ValidationError("to_amount must be greater than zero.")
+    if fee_amount is not None and fee_amount >= to_amount:
+        raise ValidationError("fee_amount must be less than to_amount.")
+
+    normalized_from_currency = from_currency.upper()
+    normalized_to_currency = to_currency.upper()
+    from_key = (
+        from_institution,
+        from_account,
+        normalized_from_currency,
+    )
+    to_key = (
+        to_institution,
+        to_account,
+        normalized_to_currency,
+    )
+    if from_key == to_key:
+        raise ValidationError("Source and destination accounts must be different.")
+
+    net_to_amount = to_amount - (fee_amount or Decimal("0"))
+    if normalized_from_currency == normalized_to_currency:
+        display_rate_value = Decimal("1")
+        display_rate_base_currency = normalized_to_currency
+        display_rate_quote_currency = normalized_from_currency
+    elif normalized_to_currency == "GBP":
+        display_rate_base_currency = "GBP"
+        display_rate_quote_currency = normalized_from_currency
+        display_rate_value = from_amount / net_to_amount
+    else:
+        display_rate_base_currency = normalized_to_currency
+        display_rate_quote_currency = normalized_from_currency
+        display_rate_value = from_amount / net_to_amount
+
+    return ExchangeRecord(
+        exchange_date=exchange_date,
+        from_institution=from_institution,
+        from_account=from_account,
+        from_currency=normalized_from_currency,
+        from_amount=from_amount,
+        fee_amount=fee_amount,
+        to_institution=to_institution,
+        to_account=to_account,
+        to_currency=normalized_to_currency,
+        to_amount=to_amount,
+        display_rate_value=display_rate_value,
+        display_rate_base_currency=display_rate_base_currency,
+        display_rate_quote_currency=display_rate_quote_currency,
         notes=notes,
     )
 
@@ -503,10 +632,6 @@ def validate_recurring_expense_template(data: dict[str, Any]) -> RecurringExpens
 
     if amount_gbp is None:
         raise ValidationError("amount_gbp is required.")
-    if amount_gbp < 0:
-        raise ValidationError("amount_gbp must be zero or greater.")
-    if amount_hkd is not None and amount_hkd < 0:
-        raise ValidationError("amount_hkd must be zero or greater.")
     if day_of_month is None:
         raise ValidationError("day_of_month is required.")
     if day_of_month < 1 or day_of_month > 31:

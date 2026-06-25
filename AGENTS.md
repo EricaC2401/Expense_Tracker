@@ -1,64 +1,62 @@
 # AGENTS.md
 
-## Project overview
+## Purpose
 
-This is a personal expense tracker for one user.
-The app should be accessible from both MacBook and iPhone using a browser.
-It will be built with Python 3.11+ and Streamlit, using Supabase PostgreSQL as the live database and CSV export as the backup method.
+This file defines how Codex should work in this repository.
+Use it for execution rules, guardrails, and change-management expectations.
+Use `PLAN.md` for roadmap content, milestone definitions, and scope tracking.
 
-For the current stage, focus on expenses only. Do not mix income and expense handling until the user explicitly requests that later.
+## Project summary
 
-## Cost constraint
+This project is a personal expense tracker for one user.
+It should be usable from both MacBook and iPhone through a browser.
+The stack for the current version is Python 3.11+, Streamlit, and Supabase PostgreSQL, with CSV export used as a backup path.
 
-The project should aim to run on free tiers where possible.
+Unless the user explicitly requests otherwise, treat expense tracking as the primary scope and avoid broadening the product on your own.
 
-Use:
+## Cost and hosting constraints
+
+Aim to stay within free tiers where practical.
+
+Preferred services:
 
 - Supabase Free plan
 - Streamlit Community Cloud free hosting
 
-Do not use paid services, paid APIs, paid hosting, paid database features, or paid add-ons unless explicitly approved by the user.
+Do not introduce paid services, paid APIs, paid hosting, paid database features, or paid add-ons unless the user explicitly approves them.
 
-If a feature may require payment, pause and explain the cost risk before implementing it.
+If a proposed feature may create cost risk, pause and explain the tradeoff before implementing it.
 
-The Supabase Free plan may pause inactive projects after a period of inactivity. Do not implement paid workarounds unless explicitly approved.
+## Default working rules
 
-## Working method
-
-Work on this project one milestone at a time.
-
-The current milestone is the first milestone in `PLAN.md` that is not marked completed, unless the user explicitly chooses a different milestone.
-
-Before making code changes:
+Before making meaningful code changes:
 
 1. Read `AGENTS.md`.
 2. Read `PLAN.md`.
-3. Identify the current milestone.
-4. Summarise the intended changes before editing files.
-5. Implement only the current milestone.
-6. Do not begin work from a later milestone, even if it seems small or related, unless the user explicitly requests that milestone.
-7. Keep changes small and reviewable.
-8. Add or update tests where practical.
-9. At the end, report:
-   - files changed
-   - what was implemented
-   - how it was tested
-   - whether `PLAN.md` needs updating
+3. Identify the active milestone or explicitly approved task.
+4. Summarise the intended change before editing files.
+5. Keep the change focused and reviewable.
+6. Add or update tests where practical.
 
-Do not implement the whole roadmap in one task.
+Unless the user explicitly requests otherwise, do not implement the whole roadmap in one task.
 
-Human tasks must be clearly identified. Do not claim that human-only tasks are complete unless the user confirms they have done them.
+When `PLAN.md` lists work that is out of milestone order, treat the `Current status` section in `PLAN.md` as the source of truth for what is currently active.
 
-Examples of human tasks:
+## Human task boundaries
+
+Human-only tasks must be clearly identified.
+Do not claim human-only tasks are complete unless the user confirms they have done them.
+
+Common human tasks include:
 
 - creating a Supabase account or project
 - running SQL in the Supabase SQL editor
 - adding secrets to Streamlit Community Cloud
 - deploying through a hosting dashboard
 
-## How to update `PLAN.md`
+## When to update `PLAN.md`
 
-Use `PLAN.md` as the project roadmap, not as a detailed implementation log.
+Use `PLAN.md` as a roadmap, not as an implementation log.
 
 Update `PLAN.md` only when:
 
@@ -70,142 +68,97 @@ Update `PLAN.md` only when:
 
 Do not update `PLAN.md` for small implementation details, refactors, bug fixes, function names, UI tweaks, or minor SQL changes.
 
-Keep `PLAN.md` concise. Detailed SQL should live in SQL migration files. Detailed setup and usage instructions should live in `README.md`.
+Detailed implementation notes should live in code, tests, migrations, or `README.md`, not in `PLAN.md`.
 
-## Code organisation
+## Code and architecture guidelines
 
-Keep the code modular and easy to understand.
+Keep the code modular, readable, and easy to change.
 
-File responsibilities:
+General expectations:
 
-- `src/app.py`: Streamlit interface only
-- `src/db.py`: Supabase/PostgreSQL connection and database queries
-- `src/models.py`: data validation and transaction data structures
-- `src/import_csv.py`: CSV import and cleaning logic
-- `src/export_csv.py`: CSV export logic
-- `src/categorisation.py`: category list and keyword-based category rules
-- `src/reports.py`: reporting and aggregation logic
-- `tests/`: pytest tests
-- `sql/`: PostgreSQL schema and migration files
+- keep UI code separate from database and reporting logic
+- use reusable functions for shared logic
+- prefer clear code over clever code
+- keep schema changes in SQL migration files
+- keep tests under `tests/`
 
-Do not put database queries directly inside `src/app.py`.
+Avoid placing database queries or reporting calculations directly in the Streamlit page code unless there is a strong reason.
 
-Do not put reporting calculations directly inside `src/app.py`.
+## Database and data rules
 
-Put common logic into reusable functions.
+Supabase PostgreSQL is the live database for the current version and should be treated as the source of truth unless the user requests an architectural change.
 
-Prefer readable code over clever code.
+General database expectations:
 
-## Database rules
+- use parameterised SQL queries
+- avoid string interpolation with user input in SQL
+- handle connection failures gracefully
+- keep connection and query concerns in a dedicated database module
+- maintain `updated_at` consistently, preferably in the database
 
-Supabase PostgreSQL is the only live database for V1. It is the single source of truth.
+Unless a milestone says otherwise, `payment_method` and `notes` may remain optional.
 
-Use `psycopg2-binary` as the PostgreSQL connector.
+For expense records, keep amount handling consistent:
 
-Keep all database logic inside `src/db.py`.
+- stored amounts keep their original sign
+- reports should use the stored sign when calculating balances
 
-Use parameterised SQL queries. Do not build SQL queries using string interpolation with user input.
+## Secrets and security
 
-Use `@st.cache_resource` on the database connection function in `src/db.py` to avoid opening a new connection on every Streamlit rerun.
+Use Streamlit secrets as the primary secrets mechanism for local development and deployment.
 
-Handle database connection failures gracefully. Show a clear error message if Supabase is unavailable.
-
-Where practical, add a simple retry or reconnect helper in `src/db.py` for dropped connections.
-
-Use a PostgreSQL trigger or explicit application logic to maintain `updated_at` on transaction updates. Prefer a database trigger for V1.
-
-For V1, `payment_method` and `notes` may be optional unless a milestone explicitly requires otherwise.
-
-Report logic for the current expense-only stage must treat amounts consistently:
-
-- stored amounts are positive numbers
-- expenses reduce the running balance in reports
-- do not introduce a `transaction_type` field unless the user later asks to support income as well
-
-## Secrets and credentials
-
-Use Streamlit secrets as the primary secrets method.
-
-Use `.streamlit/secrets.toml` locally and Streamlit Community Cloud secrets for deployment.
-
-Never commit `.env`, `.streamlit/secrets.toml`, database URLs, passwords, Supabase keys, or API keys to Git.
-
+Never commit secrets, database credentials, passwords, service role keys, or API keys to Git.
 Never hard-code credentials in source code.
-
-Never print secrets in logs, Streamlit output, error messages, or README examples.
-
-## Supabase security
-
-Do not expose Supabase service role keys in frontend code, GitHub, logs, or README examples.
-
-Store credentials only in Streamlit secrets.
+Never print secrets in logs, app output, error messages, or documentation examples.
 
 Before deployment, document the chosen Supabase security approach.
 
-For V1, either:
+For the online V1 app:
 
-- enable appropriate Row Level Security policies, or
-- document clearly why RLS is not being used and what alternative protection is in place.
-
-For V1, add simple app-level password protection before making the app accessible online. Password protection must be in place before the deployment URL is shared.
-
-For V1, this means a single shared password gate for the app, not a multi-user login system.
-
-Do not deploy publicly without simple app-level password protection.
-
-Do not implement a complex multi-user authentication system in V1.
+- protect access before sharing a public URL
+- prefer a simple single-shared-password gate over a full multi-user auth system
+- do not expose privileged keys in frontend-accessible code
 
 ## Data safety
 
-Preserve user data as the highest priority.
+Protect user data as the highest priority.
 
-Never delete transactions without user confirmation.
+- never delete transactions without user confirmation
+- avoid destructive schema changes unless explicitly requested
+- explain risk when changing the database schema
+- make sure CSV export exists before relying on edit/delete-heavy workflows
+- warn before CSV imports when duplicate detection is limited
 
-Avoid destructive database changes unless explicitly requested.
+## User experience guidelines
 
-When changing the database schema, explain the risk and update the relevant SQL migration or documentation.
+The app should remain usable on both MacBook and iPhone.
 
-CSV export must be implemented before edit and delete features.
+Prefer:
 
-Before importing CSV files, warn the user that V1 does not perform full duplicate detection and ask for confirmation before inserting rows.
-
-## User interface principles
-
-The app should be usable on both MacBook and iPhone.
-
-Design with mobile use in mind:
-
-- simple layout
-- clear buttons
+- simple layouts
+- clear actions and feedback
 - minimal typing
-- dropdowns for categories
-- quick-add transaction form
-- readable transaction table
-- clear success and error messages
+- category dropdowns where appropriate
+- readable transaction tables
+- clear handling of uncategorised records
 
-Use `Uncategorised` as the default category when none is provided.
-
-Reports and transaction views should handle uncategorised transactions clearly.
+Use `Uncategorised` as the default category when none is provided, unless a future requirement changes that rule.
 
 ## Testing expectations
 
-Use `pytest` for all tests.
-
-Do not overcomplicate tests for the Streamlit UI in V1.
-
+Use `pytest` for automated tests.
+Do not overcomplicate UI testing for the early versions.
 For each milestone, add or update tests where practical.
 
-## Do not do in V1
+## Out of scope unless explicitly requested
 
-Do not introduce:
+Do not introduce the following on your own:
 
-- SQLite or local PostgreSQL
-- database synchronisation
+- SQLite or local PostgreSQL as an alternative live database
+- database synchronisation systems
 - paid APIs or paid hosting
-- multi-user login or complex authentication
+- complex multi-user authentication
 - AI categorisation or OCR
 - automated keep-alive jobs
 - advanced duplicate detection
 - Open Banking or bank API integration
-
-These may be considered later only if explicitly requested.

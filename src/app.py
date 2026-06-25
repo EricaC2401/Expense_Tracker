@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 import json
 import time
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -18,6 +19,7 @@ import streamlit as st
 if TYPE_CHECKING:
     try:
         from src.db import (
+            StoredExchangeRecord,
             StoredFinanceSnapshotEntry,
             StoredIncomeTransaction,
             StoredRecurringExpense,
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
         )
     except (ModuleNotFoundError, ImportError):  # pragma: no cover - direct-run fallback
         from db import (
+            StoredExchangeRecord,
             StoredFinanceSnapshotEntry,
             StoredIncomeTransaction,
             StoredRecurringExpense,
@@ -44,10 +47,12 @@ try:
         DatabaseConnectionError,
         DatabaseSchemaError,
         FinanceLinkError,
+        StoredExchangeRecord,
         StoredFinanceSnapshotEntry,
         StoredExpenseTransaction,
         StoredIncomeTransaction,
         StoredTaxDueEntry,
+        delete_exchange_record_with_finance_link,
         delete_income_tax_due_entry,
         delete_finance_snapshot_account_history,
         delete_finance_snapshot_entry,
@@ -55,6 +60,7 @@ try:
         delete_income_transaction_with_finance_link,
         delete_transaction_with_finance_link,
         delete_transaction,
+        fetch_exchange_records,
         fetch_income_transactions,
         fetch_finance_snapshot_dates,
         fetch_finance_snapshot_entries,
@@ -66,6 +72,7 @@ try:
         fetch_recurring_expenses,
         generate_due_recurring_incomes,
         generate_due_recurring_expenses,
+        insert_exchange_record_with_finance_link,
         insert_income_transaction,
         insert_income_transaction_with_finance_link,
         insert_income_tax_due_entry,
@@ -99,6 +106,7 @@ try:
     from src.models import (
         COMMON_FINANCE_CURRENCIES,
         DEFAULT_TRANSACTION_GROUP,
+        ExchangeRecord,
         FinanceSnapshotEntry,
         IncomeTransaction,
         RecurringIncomeTemplate,
@@ -106,6 +114,7 @@ try:
         ValidationError,
         get_next_recurring_due_date,
         validate_finance_snapshot_entry,
+        validate_exchange_record,
         validate_expense_transaction,
         validate_income_transaction,
         validate_tax_due_entry,
@@ -124,10 +133,12 @@ except (ModuleNotFoundError, ImportError):  # pragma: no cover - direct-run fall
         DatabaseConnectionError,
         DatabaseSchemaError,
         FinanceLinkError,
+        StoredExchangeRecord,
         StoredFinanceSnapshotEntry,
         StoredExpenseTransaction,
         StoredIncomeTransaction,
         StoredTaxDueEntry,
+        delete_exchange_record_with_finance_link,
         delete_income_tax_due_entry,
         delete_finance_snapshot_account_history,
         delete_finance_snapshot_entry,
@@ -135,6 +146,7 @@ except (ModuleNotFoundError, ImportError):  # pragma: no cover - direct-run fall
         delete_income_transaction_with_finance_link,
         delete_transaction_with_finance_link,
         delete_transaction,
+        fetch_exchange_records,
         fetch_income_transactions,
         fetch_finance_snapshot_dates,
         fetch_finance_snapshot_entries,
@@ -146,6 +158,7 @@ except (ModuleNotFoundError, ImportError):  # pragma: no cover - direct-run fall
         fetch_recurring_expenses,
         generate_due_recurring_incomes,
         generate_due_recurring_expenses,
+        insert_exchange_record_with_finance_link,
         insert_income_transaction,
         insert_income_transaction_with_finance_link,
         insert_income_tax_due_entry,
@@ -179,6 +192,7 @@ except (ModuleNotFoundError, ImportError):  # pragma: no cover - direct-run fall
     from models import (
         COMMON_FINANCE_CURRENCIES,
         DEFAULT_TRANSACTION_GROUP,
+        ExchangeRecord,
         FinanceSnapshotEntry,
         IncomeTransaction,
         RecurringIncomeTemplate,
@@ -186,6 +200,7 @@ except (ModuleNotFoundError, ImportError):  # pragma: no cover - direct-run fall
         ValidationError,
         get_next_recurring_due_date,
         validate_finance_snapshot_entry,
+        validate_exchange_record,
         validate_expense_transaction,
         validate_income_transaction,
         validate_tax_due_entry,
@@ -194,16 +209,15 @@ except (ModuleNotFoundError, ImportError):  # pragma: no cover - direct-run fall
     )
     import reports as reports_module
 
-build_category_spending_report = reports_module.build_category_spending_report
 build_expense_breakout_summary = reports_module.build_expense_breakout_summary
 build_expense_report_summary = reports_module.build_expense_report_summary
+build_expense_transaction_total_gbp = reports_module.build_expense_transaction_total_gbp
 build_finance_bicurrency_totals = reports_module.build_finance_bicurrency_totals
 build_finance_currency_summary = reports_module.build_finance_currency_summary
 build_finance_institution_summary = reports_module.build_finance_institution_summary
 build_financial_year_label = reports_module.build_financial_year_label
 build_income_report_summary = reports_module.build_income_report_summary
 build_largest_expenses_report = reports_module.build_largest_expenses_report
-build_monthly_trend_report = reports_module.build_monthly_trend_report
 build_overall_dashboard_summary = reports_module.build_overall_dashboard_summary
 filter_income_transactions_by_date_range = reports_module.filter_income_transactions_by_date_range
 filter_tax_due_entries_by_date_range = reports_module.filter_tax_due_entries_by_date_range
@@ -216,6 +230,241 @@ build_living_classification_report = getattr(
     "build_living_classification_report",
     lambda transactions: [],
 )
+
+
+def _fallback_build_expense_tax_split_summary(
+    transactions: list["StoredExpenseTransaction"],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+):
+    """Compatibility fallback when the loaded reports module predates tax-split helpers."""
+
+    tax_transactions = filter_tax_payment_transactions(transactions)
+    non_tax_transactions = [
+        transaction for transaction in transactions if transaction not in tax_transactions
+    ]
+    non_tax_summary = build_expense_report_summary(
+        non_tax_transactions,
+        month_rates_by_month=month_rates_by_month,
+    )
+    tax_summary = build_expense_report_summary(
+        tax_transactions,
+        month_rates_by_month=month_rates_by_month,
+    )
+    return SimpleNamespace(
+        expense_ex_tax_gbp=non_tax_summary.total_spend_gbp,
+        expense_ex_tax_hkd=non_tax_summary.total_spend_hkd,
+        tax_payments_gbp=tax_summary.total_spend_gbp,
+        tax_payments_hkd=tax_summary.total_spend_hkd,
+        transaction_count=len(transactions),
+    )
+
+
+build_expense_tax_split_summary = getattr(
+    reports_module,
+    "build_expense_tax_split_summary",
+    _fallback_build_expense_tax_split_summary,
+)
+
+
+def build_category_spending_report(
+    transactions: list["StoredExpenseTransaction"],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+):
+    """Compatibility wrapper for category totals with optional FX conversion."""
+
+    report_fn = reports_module.build_category_spending_report
+    try:
+        return report_fn(transactions, month_rates_by_month=month_rates_by_month)
+    except TypeError as exc:
+        if "month_rates_by_month" not in str(exc):
+            raise
+        rows = report_fn(transactions)
+        if month_rates_by_month is None:
+            return rows
+        adjusted_rows = []
+        for row in rows:
+            category = str(row["category"])
+            amount_hkd = Decimal(row["amount_hkd"])
+            amount_gbp = sum(
+                build_expense_transaction_total_gbp(
+                    transaction,
+                    month_rates_by_month=month_rates_by_month,
+                )
+                for transaction in transactions
+                if transaction.category == category
+            )
+            adjusted_rows.append(
+                {
+                    "category": category,
+                    "amount_gbp": amount_gbp,
+                    "amount_hkd": amount_hkd,
+                }
+            )
+        return adjusted_rows
+
+
+def build_monthly_trend_report(
+    transactions: list["StoredExpenseTransaction"],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+):
+    """Compatibility wrapper for monthly trend totals with optional FX conversion."""
+
+    report_fn = reports_module.build_monthly_trend_report
+    try:
+        return report_fn(transactions, month_rates_by_month=month_rates_by_month)
+    except TypeError as exc:
+        if "month_rates_by_month" not in str(exc):
+            raise
+        rows = report_fn(transactions)
+        if month_rates_by_month is None:
+            return rows
+        adjusted = []
+        for row in rows:
+            month = str(row["month"])
+            amount_hkd = Decimal(row["amount_hkd"])
+            amount_gbp = sum(
+                build_expense_transaction_total_gbp(
+                    transaction,
+                    month_rates_by_month=month_rates_by_month,
+                )
+                for transaction in transactions
+                if transaction.transaction_date.strftime("%Y-%m") == month
+            )
+            adjusted.append(
+                {
+                    "month": month,
+                    "amount_gbp": amount_gbp,
+                    "amount_hkd": amount_hkd,
+                }
+            )
+        return adjusted
+
+
+def build_daily_trend_report(
+    transactions: list["StoredExpenseTransaction"],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+):
+    """Compatibility wrapper for daily trend totals with optional FX conversion."""
+
+    report_fn = reports_module.build_daily_trend_report
+    try:
+        return report_fn(transactions, month_rates_by_month=month_rates_by_month)
+    except TypeError as exc:
+        if "month_rates_by_month" not in str(exc):
+            raise
+        rows = report_fn(transactions)
+        if month_rates_by_month is None:
+            return rows
+        adjusted = []
+        for row in rows:
+            day = str(row["day"])
+            amount_hkd = Decimal(row["amount_hkd"])
+            amount_gbp = sum(
+                build_expense_transaction_total_gbp(
+                    transaction,
+                    month_rates_by_month=month_rates_by_month,
+                )
+                for transaction in transactions
+                if transaction.transaction_date.isoformat() == day
+            )
+            adjusted.append(
+                {
+                    "day": day,
+                    "amount_gbp": amount_gbp,
+                    "amount_hkd": amount_hkd,
+                }
+            )
+        return adjusted
+
+
+def build_daily_category_trend_report(
+    transactions: list["StoredExpenseTransaction"],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+):
+    """Compatibility wrapper for stacked daily trend totals with optional FX conversion."""
+
+    report_fn = reports_module.build_daily_category_trend_report
+    try:
+        return report_fn(transactions, month_rates_by_month=month_rates_by_month)
+    except TypeError as exc:
+        if "month_rates_by_month" not in str(exc):
+            raise
+        rows = report_fn(transactions)
+        if month_rates_by_month is None:
+            return rows
+        adjusted = []
+        for row in rows:
+            day = str(row["day"])
+            category = str(row["category"])
+            amount_gbp = sum(
+                build_expense_transaction_total_gbp(
+                    transaction,
+                    month_rates_by_month=month_rates_by_month,
+                )
+                for transaction in transactions
+                if transaction.transaction_date.isoformat() == day
+                and reports_module.get_dashboard_chart_bucket(
+                    transaction.category,
+                    transaction.group_name,
+                )
+                == category
+            )
+            adjusted.append(
+                {
+                    "day": day,
+                    "category": category,
+                    "amount_gbp": amount_gbp,
+                }
+            )
+        return adjusted
+
+
+def build_monthly_category_trend_report(
+    transactions: list["StoredExpenseTransaction"],
+    *,
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+):
+    """Compatibility wrapper for stacked monthly trend totals with optional FX conversion."""
+
+    report_fn = reports_module.build_monthly_category_trend_report
+    try:
+        return report_fn(transactions, month_rates_by_month=month_rates_by_month)
+    except TypeError as exc:
+        if "month_rates_by_month" not in str(exc):
+            raise
+        rows = report_fn(transactions)
+        if month_rates_by_month is None:
+            return rows
+        adjusted = []
+        for row in rows:
+            month = str(row["month"])
+            category = str(row["category"])
+            amount_gbp = sum(
+                build_expense_transaction_total_gbp(
+                    transaction,
+                    month_rates_by_month=month_rates_by_month,
+                )
+                for transaction in transactions
+                if transaction.transaction_date.strftime("%Y-%m") == month
+                and reports_module.get_dashboard_chart_bucket(
+                    transaction.category,
+                    transaction.group_name,
+                )
+                == category
+            )
+            adjusted.append(
+                {
+                    "month": month,
+                    "category": category,
+                    "amount_gbp": amount_gbp,
+                }
+            )
+        return adjusted
 
 GRID_COLUMNS = (
     "Selected",
@@ -283,6 +532,472 @@ DEFAULT_REFERENCE_RATE_TEXTS = {
     for currency, rate in FALLBACK_REFERENCE_RATES_TO_HKD.items()
     if currency != "HKD"
 }
+VIEW_CONFIG = {
+    "Overall Dashboard": {
+        "eyebrow": "Overview",
+        "title": "Dashboard",
+        "description": "Combined summary across income, expenses, tax, and current balances.",
+    },
+    "Expenses": {
+        "eyebrow": "Expenses",
+        "title": "Expense Tracker",
+        "description": "Quick-add expenses, review recent activity, export backups, and run reports.",
+    },
+    "Income": {
+        "eyebrow": "Income",
+        "title": "Income Tracking",
+        "description": "Track gross income separately while reading tax-paid history from expense records.",
+    },
+    "Finance Situation": {
+        "eyebrow": "Finance",
+        "title": "Finance Snapshot",
+        "description": "Current balances, transfers, and exchange history outside the expense ledger.",
+    },
+    "Recurring": {
+        "eyebrow": "Finance",
+        "title": "Recurring",
+        "description": "Manage recurring expense templates and review upcoming committed spending.",
+    },
+    "Reports": {
+        "eyebrow": "Insights",
+        "title": "Reports",
+        "description": "Review filtered spending totals, category breakdowns, and longer-term trends.",
+    },
+    "Import": {
+        "eyebrow": "Data",
+        "title": "Import",
+        "description": "Validate and import expense CSV files into the live tracker safely.",
+    },
+    "Export": {
+        "eyebrow": "Data",
+        "title": "Export",
+        "description": "Download a CSV backup of your current expense history.",
+    },
+}
+
+
+def is_tax_payment_group(group_name: str) -> bool:
+    """Return whether one group label represents a tax payment bucket."""
+
+    normalized_group = " ".join(str(group_name).strip().split()).lower()
+    return normalized_group in {"taxpayment", "tax payment"}
+
+
+SIDEBAR_NAV_GROUPS = (
+    (
+        "Main",
+        (
+            ("Dashboard", "Overall Dashboard", None),
+            ("Expenses", "Expenses", None),
+            ("Income", "Income", None),
+        ),
+    ),
+    (
+        "Finance",
+        (
+            ("Finance snapshot", "Finance Situation", None),
+            ("Recurring", "Expenses", "Recurring"),
+        ),
+    ),
+    (
+        "Insights",
+        (
+            ("Reports", "Expenses", "Reports"),
+        ),
+    ),
+    (
+        "Data",
+        (
+            ("Import", "Expenses", "Import"),
+            ("Export", "Expenses", "Export"),
+        ),
+    ),
+)
+
+
+def inject_app_chrome() -> None:
+    """Apply a dashboard-style shell inspired by the reference design."""
+
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background: #f5f7fc;
+        }
+        [data-testid="stAppViewContainer"] {
+            background: transparent;
+        }
+        [data-testid="stHeader"] {
+            background: #ffffff;
+            border-bottom: 1px solid #e7ecf5;
+        }
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #151929 0%, #1c2238 100%);
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        [data-testid="stSidebar"] * {
+            color: #e7ecf9;
+        }
+        [data-testid="stSidebar"] .stMarkdown p {
+            color: rgba(231, 236, 249, 0.72);
+        }
+        [data-testid="stSidebarNav"] {
+            display: none;
+        }
+        .sidebar-nav-group {
+            margin-top: 1.25rem;
+        }
+        .sidebar-nav-group-title {
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: rgba(231, 236, 249, 0.38);
+            margin: 0 0 0.55rem 0;
+        }
+        [data-testid="stSidebar"] .stButton > button {
+            width: calc(100% + 1rem);
+            margin: 0 0 0.12rem -0.5rem;
+            justify-content: flex-start;
+            border-radius: 0;
+            min-height: 3rem;
+            padding: 0.75rem 1rem;
+            border: 0;
+            border-left: 4px solid transparent;
+            background: transparent;
+            color: rgba(231, 236, 249, 0.68);
+            font-size: 1rem;
+            font-weight: 500;
+            box-shadow: none;
+        }
+        [data-testid="stSidebar"] .stButton > button:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: #ffffff;
+            border-left-color: rgba(107, 92, 255, 0.8);
+        }
+        [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+            background: rgba(255, 255, 255, 0.09);
+            color: #ffffff;
+            border-left-color: #6b5cff;
+        }
+        .app-shell {
+            background: #ffffff;
+            border: 1px solid #e3e8f3;
+            border-radius: 18px;
+            padding: 1.1rem 1.35rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+        }
+        .app-shell__eyebrow {
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #6d67c5;
+            margin-bottom: 0.45rem;
+        }
+        .app-shell__title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1a1f2e;
+            margin: 0;
+            line-height: 1.1;
+        }
+        .app-shell__description {
+            margin-top: 0.45rem;
+            color: #5f6b7f;
+            font-size: 0.98rem;
+        }
+        .app-shell__pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            margin-top: 0.9rem;
+            padding: 0.38rem 0.7rem;
+            border-radius: 999px;
+            background: #eeedfe;
+            color: #534ab7;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+        div[data-testid="stMetric"] {
+            background: #ffffff;
+            border: 1px solid #e8ecf4;
+            border-radius: 14px;
+            padding: 0.95rem 1rem;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+        }
+        div[data-testid="stDataFrame"],
+        div[data-testid="stExpander"],
+        div[data-testid="stForm"] {
+            background: #ffffff;
+            border: 1px solid #e8ecf4;
+            border-radius: 14px;
+            padding: 0.35rem;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+        }
+        .stButton > button,
+        .stDownloadButton > button,
+        .stFormSubmitButton > button {
+            border-radius: 10px;
+            border: 1px solid #534ab7;
+            background: #534ab7;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        .stButton > button[kind="secondary"],
+        .stDownloadButton > button[kind="secondary"] {
+            background: #ffffff;
+            color: #1a1f2e;
+            border-color: #d0d5e0;
+        }
+        [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
+            background: transparent;
+            color: rgba(231, 236, 249, 0.68);
+            border-color: transparent;
+        }
+        /* ── Dashboard metric cards ── */
+        .mc {
+            background: #ffffff;
+            border-radius: 0.85rem;
+            padding: 1.1rem 1.25rem;
+            border: 1px solid #e8ecf4;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+        }
+        .mc-label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #8492a6;
+            margin-bottom: 0.4rem;
+        }
+        .mc-value {
+            font-size: 1.65rem;
+            font-weight: 700;
+            color: #1a1f2e;
+            line-height: 1.1;
+        }
+        .mc-value.neg { color: #c0392b; }
+        .mc-value.pos { color: #0f6e56; }
+        .mc-sub {
+            font-size: 0.82rem;
+            color: #8492a6;
+            margin-top: 0.25rem;
+        }
+
+        /* ── Dashboard card sections ── */
+        .card-section {
+            background: #ffffff;
+            border-radius: 0.85rem;
+            padding: 1.15rem 1.3rem;
+            border: 1px solid #e8ecf4;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+        }
+        .card-title {
+            font-size: 0.82rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #8492a6;
+            margin-bottom: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+
+        /* ── Finance snapshot rows ── */
+        .fin-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.45rem 0;
+            border-bottom: 1px solid #f3f4f8;
+            font-size: 0.92rem;
+        }
+        .fin-row:last-child { border-bottom: none; }
+        .fin-label { color: #5a6478; }
+        .fin-bal { font-weight: 600; color: #1a1f2e; }
+        .fin-total {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.65rem 0 0;
+            margin-top: 0.45rem;
+            border-top: 1px solid #e8ecf4;
+            font-size: 0.92rem;
+            font-weight: 600;
+        }
+
+        /* ── Expense breakout rows ── */
+        .bk-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #f3f4f8;
+            font-size: 0.88rem;
+        }
+        .bk-row:last-child {
+            border-bottom: none;
+            font-weight: 600;
+            padding-top: 0.55rem;
+            border-top: 1px solid #e8ecf4;
+        }
+        .bk-row-total .bk-type,
+        .bk-row-total .bk-gbp {
+            font-weight: 600;
+        }
+        .bk-type { color: #3d4a5c; }
+        .bk-gbp { font-weight: 500; color: #1a1f2e; }
+        .bk-hkd { font-size: 0.78rem; color: #8492a6; margin-left: 0.25rem; }
+
+        /* ── Top categories bars ── */
+        .top-cat-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.7rem;
+            padding: 0.55rem 0;
+            border-bottom: 1px solid #f3f4f8;
+        }
+        .top-cat-row:last-of-type { border-bottom: none; }
+        .top-cat-rank {
+            width: 1.35rem;
+            height: 1.35rem;
+            border-radius: 50%;
+            background: #f0f1f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #8492a6;
+            flex-shrink: 0;
+            margin-top: 0.1rem;
+        }
+        .top-cat-bar-wrap { flex: 1; min-width: 0; }
+        .top-cat-name {
+            font-size: 0.88rem;
+            color: #1a1f2e;
+            font-weight: 500;
+        }
+        .top-cat-amt {
+            font-size: 0.82rem;
+            color: #8492a6;
+        }
+        .bar-track {
+            height: 0.35rem;
+            background: #f0f1f5;
+            border-radius: 0.2rem;
+            overflow: hidden;
+            margin-top: 0.3rem;
+        }
+        .bar-fill {
+            height: 100%;
+            border-radius: 0.2rem;
+        }
+
+        @media (max-width: 768px) {
+            .app-shell {
+                padding: 1rem;
+                border-radius: 16px;
+            }
+            .app-shell__title {
+                font-size: 1.55rem;
+            }
+            [data-testid="stSidebar"] {
+                min-width: 16rem;
+            }
+            .mc-value {
+                font-size: 1.3rem;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_navigation() -> tuple[str, str | None, str]:
+    """Render grouped sidebar navigation and return page, focus, and active label."""
+
+    if "active_page" not in st.session_state:
+        st.session_state["active_page"] = "Overall Dashboard"
+    if "active_focus" not in st.session_state:
+        st.session_state["active_focus"] = None
+
+    current_page = st.session_state["active_page"]
+    current_focus = st.session_state["active_focus"]
+
+    st.sidebar.markdown(
+        """
+        <div style="padding: 0.25rem 0 1rem 0;">
+            <div style="display:flex; align-items:center; gap:0.75rem;">
+                <div style="width:2.1rem; height:2.1rem; border-radius:0.75rem; background:#534ab7; display:flex; align-items:center; justify-content:center; font-size:1.1rem; font-weight:700;">
+                    £
+                </div>
+                <div>
+                    <div style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.12em; color:rgba(231,236,249,0.55);">Personal Finance</div>
+                    <div style="font-size:1rem; font-weight:700; color:#ffffff;">Expense Marker</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    active_label = "Dashboard"
+    for group_title, items in SIDEBAR_NAV_GROUPS:
+        st.sidebar.markdown(
+            f"<div class='sidebar-nav-group'><div class='sidebar-nav-group-title'>{group_title}</div>",
+            unsafe_allow_html=True,
+        )
+        for label, page, focus in items:
+            is_active = current_page == page and current_focus == focus
+            if current_page == page and focus is None and current_focus is None and page != "Expenses":
+                is_active = True
+            if label == "Expenses" and current_page == "Expenses" and current_focus is None:
+                is_active = True
+            if is_active:
+                active_label = label
+            button_label = {
+                "Dashboard": "Dashboard",
+                "Expenses": "Expenses",
+                "Income": "Income",
+                "Finance snapshot": "Finance snapshot",
+                "Recurring": "Recurring",
+                "Reports": "Reports",
+                "Import": "Import",
+                "Export": "Export",
+            }[label]
+            if st.sidebar.button(
+                button_label,
+                key=f"nav_{label}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+            ):
+                st.session_state["active_page"] = page
+                st.session_state["active_focus"] = focus
+                st.rerun()
+        st.sidebar.markdown("</div>", unsafe_allow_html=True)
+
+    return current_page, current_focus, active_label
+
+
+def render_page_shell(view_key: str) -> None:
+    """Render a top header block for the selected view."""
+
+    config = VIEW_CONFIG[view_key]
+    st.markdown(
+        (
+            "<section class='app-shell'>"
+            f"<div class='app-shell__eyebrow'>{config['eyebrow']}</div>"
+            f"<h1 class='app-shell__title'>{config['title']}</h1>"
+            f"<p class='app-shell__description'>{config['description']}</p>"
+            f"<div class='app-shell__pill'>Live Supabase-backed Streamlit app</div>"
+            "</section>"
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def format_finance_amount(value: Decimal | float | int | str) -> str:
@@ -993,11 +1708,21 @@ def get_manual_category_value(
     description: str,
     current_category: str | None,
     category_overridden: bool,
+    allowed_categories: list[str] | None = None,
 ) -> tuple[str, str | None]:
     """Return the visible manual-form category and the current suggestion."""
 
     suggested_category = suggest_category(description)
+    allowed_categories = list(allowed_categories or [])
+    allowed_category_set = set(allowed_categories)
+    if allowed_category_set and suggested_category not in allowed_category_set:
+        suggested_category = None
+
     normalized_current = current_category or DEFAULT_CATEGORY
+    if allowed_category_set and normalized_current not in allowed_category_set:
+        normalized_current = (
+            DEFAULT_CATEGORY if DEFAULT_CATEGORY in allowed_category_set else allowed_categories[0]
+        )
 
     if category_overridden:
         return normalized_current, suggested_category
@@ -1040,6 +1765,39 @@ def _apply_pending_manual_entry_reset() -> None:
     st.session_state["manual_payment_method"] = DEFAULT_PAYMENT_METHOD
     st.session_state["manual_notes"] = ""
     st.session_state["manual_entry_reset_pending"] = False
+
+
+def get_manual_category_options(
+    transactions: list[StoredExpenseTransaction],
+    *,
+    group_name: str,
+) -> list[str]:
+    """Return manual-entry category options for the selected group."""
+
+    normalized_group = " ".join(str(group_name).strip().split())
+    default_categories = get_default_categories()
+    categories: list[str]
+
+    if normalized_group == DEFAULT_TRANSACTION_GROUP:
+        categories = list(default_categories)
+    elif normalized_group == "Travel":
+        categories = ["Travel", "Trip", "Flight Ticket", DEFAULT_CATEGORY]
+    elif normalized_group == "UK Settlement":
+        categories = ["Visa", "Exam", DEFAULT_CATEGORY]
+    elif normalized_group == "Large one-off":
+        categories = ["Car Related: One-off", DEFAULT_CATEGORY]
+    elif normalized_group in {"TaxPayment", "Tax Payment"}:
+        categories = ["Tax", DEFAULT_CATEGORY]
+    else:
+        categories = [DEFAULT_CATEGORY]
+
+    for transaction in transactions:
+        if transaction.group_name != normalized_group:
+            continue
+        if transaction.category not in categories:
+            categories.append(transaction.category)
+
+    return categories
 
 
 def format_recurring_expense_label(template: StoredRecurringExpense) -> str:
@@ -1366,7 +2124,6 @@ def render_manual_entry_form() -> None:
     st.subheader("Add Expense")
     st.caption("Record one expense at a time. Required fields are kept short for iPhone use.")
 
-    categories = get_default_categories()
     _apply_pending_manual_entry_reset()
     if "manual_category_overridden" not in st.session_state:
         st.session_state["manual_category_overridden"] = False
@@ -1376,6 +2133,14 @@ def render_manual_entry_form() -> None:
         st.session_state["manual_group"] = DEFAULT_TRANSACTION_GROUP
     if "manual_payment_method" not in st.session_state:
         st.session_state["manual_payment_method"] = DEFAULT_PAYMENT_METHOD
+    manual_transactions: list[StoredExpenseTransaction] = []
+    try:
+        manual_transactions = fetch_transactions()
+        manual_group_options = get_editor_group_options(manual_transactions)
+    except (DatabaseConnectionError, DatabaseSchemaError):
+        manual_group_options = [DEFAULT_TRANSACTION_GROUP]
+    if st.session_state["manual_group"] not in manual_group_options:
+        manual_group_options = [st.session_state["manual_group"], *manual_group_options]
     manual_payment_options = get_payment_method_options()
     if st.session_state["manual_payment_method"] not in manual_payment_options:
         st.session_state["manual_payment_method"] = ""
@@ -1387,10 +2152,26 @@ def render_manual_entry_form() -> None:
         on_change=_handle_manual_description_change,
     )
 
+    group_name = st.selectbox(
+        "Group",
+        options=manual_group_options,
+        index=manual_group_options.index(st.session_state["manual_group"]),
+        key="manual_group",
+    )
+    category_options = get_manual_category_options(
+        manual_transactions,
+        group_name=group_name,
+    )
+    if st.session_state["manual_category"] not in category_options:
+        st.session_state["manual_category"] = (
+            DEFAULT_CATEGORY if DEFAULT_CATEGORY in category_options else category_options[0]
+        )
+
     visible_category, suggested_category = get_manual_category_value(
         description=description,
         current_category=st.session_state.get("manual_category"),
         category_overridden=bool(st.session_state.get("manual_category_overridden")),
+        allowed_categories=category_options,
     )
     st.session_state["manual_category"] = visible_category
 
@@ -1406,15 +2187,13 @@ def render_manual_entry_form() -> None:
 
     category = st.selectbox(
         "Category",
-        categories,
-        index=categories.index(st.session_state["manual_category"]),
+        category_options,
+        index=category_options.index(st.session_state["manual_category"]),
         key="manual_category",
         on_change=_mark_manual_category_override,
     )
-    group_name = st.text_input("Group", key="manual_group")
     amount_gbp = st.number_input(
         "Amount (GBP)",
-        min_value=0.0,
         step=0.01,
         format="%.2f",
         key="manual_amount_gbp",
@@ -1900,46 +2679,86 @@ def build_dashboard_monthly_view_rows(summary) -> list[dict[str, str]]:
     ]
 
 
-def build_dashboard_expense_breakout_rows(summary) -> list[dict[str, str]]:
+def build_dashboard_expense_breakout_rows(
+    summary,
+    *,
+    housing_expense_gbp: Decimal = Decimal("0"),
+    housing_expense_hkd: Decimal = Decimal("0"),
+    family_expense_gbp: Decimal = Decimal("0"),
+    family_expense_hkd: Decimal = Decimal("0"),
+    uk_settlement_gbp: Decimal = Decimal("0"),
+    uk_settlement_hkd: Decimal = Decimal("0"),
+    large_one_off_gbp: Decimal = Decimal("0"),
+    large_one_off_hkd: Decimal = Decimal("0"),
+    travel_expense_gbp: Decimal = Decimal("0"),
+    travel_expense_hkd: Decimal = Decimal("0"),
+) -> list[dict[str, str]]:
     """Build explicit expense breakout rows for the dashboard."""
 
     breakout = summary.expense_breakout
-    other_expense_gbp = (
-        summary.expense_gbp - breakout.planned_irregular_gbp - breakout.exceptional_gbp
+    displayed_tax_gbp = summary.total_tax_amount_gbp
+    displayed_tax_hkd = breakout.tax_hkd
+    regular_non_housing_gbp = (
+        summary.expense_gbp
+        - housing_expense_gbp
+        - family_expense_gbp
+        - uk_settlement_gbp
+        - large_one_off_gbp
+        - travel_expense_gbp
     )
-    other_expense_hkd = (
-        summary.expense_hkd - breakout.planned_irregular_hkd - breakout.exceptional_hkd
+    regular_non_housing_hkd = (
+        summary.expense_hkd
+        - housing_expense_hkd
+        - family_expense_hkd
+        - uk_settlement_hkd
+        - large_one_off_hkd
+        - travel_expense_hkd
     )
-    total_expense_include_tax_gbp = summary.expense_gbp + breakout.tax_gbp
-    total_expense_include_tax_hkd = summary.expense_hkd + breakout.tax_hkd
+    total_expense_include_tax_gbp = summary.expense_gbp + displayed_tax_gbp
+    total_expense_include_tax_hkd = summary.expense_hkd + displayed_tax_hkd
     return [
         {
-            "Expense Type": "Annual / Planned Irregular",
-            "Amount (GBP)": format_finance_amount(breakout.planned_irregular_gbp),
-            "Amount (HKD)": format_finance_amount(breakout.planned_irregular_hkd),
+            "Expense Type": "Housing",
+            "Amount (GBP)": format_finance_amount(housing_expense_gbp),
+            "Amount (HKD)": format_finance_amount(housing_expense_hkd),
         },
         {
-            "Expense Type": "One-off / Exceptional",
-            "Amount (GBP)": format_finance_amount(breakout.exceptional_gbp),
-            "Amount (HKD)": format_finance_amount(breakout.exceptional_hkd),
+            "Expense Type": "Regular non-housing expenses",
+            "Amount (GBP)": format_finance_amount(regular_non_housing_gbp),
+            "Amount (HKD)": format_finance_amount(regular_non_housing_hkd),
         },
         {
-            "Expense Type": "Tax",
-            "Amount (GBP)": format_finance_amount(breakout.tax_gbp),
-            "Amount (HKD)": format_finance_amount(breakout.tax_hkd),
+            "Expense Type": "Family",
+            "Amount (GBP)": format_finance_amount(family_expense_gbp),
+            "Amount (HKD)": format_finance_amount(family_expense_hkd),
         },
         {
-            "Expense Type": "Other Expense",
-            "Amount (GBP)": format_finance_amount(other_expense_gbp),
-            "Amount (HKD)": format_finance_amount(other_expense_hkd),
+            "Expense Type": "UK Settlement",
+            "Amount (GBP)": format_finance_amount(uk_settlement_gbp),
+            "Amount (HKD)": format_finance_amount(uk_settlement_hkd),
         },
         {
-            "Expense Type": "Total Expense Exclude Tax",
+            "Expense Type": "Large One-off",
+            "Amount (GBP)": format_finance_amount(large_one_off_gbp),
+            "Amount (HKD)": format_finance_amount(large_one_off_hkd),
+        },
+        {
+            "Expense Type": "Travel",
+            "Amount (GBP)": format_finance_amount(travel_expense_gbp),
+            "Amount (HKD)": format_finance_amount(travel_expense_hkd),
+        },
+        {
+            "Expense Type": "Total before tax",
             "Amount (GBP)": format_finance_amount(summary.expense_gbp),
             "Amount (HKD)": format_finance_amount(summary.expense_hkd),
         },
         {
-            "Expense Type": "Total Expense Include Tax",
+            "Expense Type": "Tax payment",
+            "Amount (GBP)": format_finance_amount(displayed_tax_gbp),
+            "Amount (HKD)": format_finance_amount(displayed_tax_hkd),
+        },
+        {
+            "Expense Type": "Total including tax",
             "Amount (GBP)": format_finance_amount(total_expense_include_tax_gbp),
             "Amount (HKD)": format_finance_amount(total_expense_include_tax_hkd),
         },
@@ -2396,9 +3215,6 @@ def render_income_section() -> None:
             f"{stored_income.currency} {stored_income.gross_amount:.2f}."
         )
         st.rerun()
-
-    render_recurring_income_section(finance_account_options=finance_account_options)
-    render_income_import_section(incomes=incomes, latest_entries=latest_entries)
 
     st.markdown("**Tax Due**")
     tax_period_options = get_income_financial_year_label_options(
@@ -2892,6 +3708,122 @@ def format_finance_history_account_option(option: tuple[str, str, str]) -> str:
     return f"{institution} / {account} / {currency}"
 
 
+def build_exchange_record_payload(
+    *,
+    exchange_date: date,
+    from_account_option: tuple[str, str, str],
+    from_amount: object,
+    fee_amount: object,
+    to_account_option: tuple[str, str, str],
+    to_amount: object,
+    notes: str,
+) -> dict[str, object]:
+    """Build a validation-ready exchange payload from form inputs."""
+
+    return {
+        "exchange_date": exchange_date.isoformat(),
+        "from_institution": from_account_option[0],
+        "from_account": from_account_option[1],
+        "from_currency": from_account_option[2],
+        "from_amount": str(from_amount).strip(),
+        "fee_amount": str(fee_amount).strip(),
+        "to_institution": to_account_option[0],
+        "to_account": to_account_option[1],
+        "to_currency": to_account_option[2],
+        "to_amount": str(to_amount).strip(),
+        "notes": notes,
+    }
+
+
+def get_exchange_default_account_index(
+    options: list[tuple[str, str, str]],
+    *,
+    preferred_currency: str,
+    preferred_option: tuple[str, str, str] | None = None,
+    exclude_option: tuple[str, str, str] | None = None,
+) -> int:
+    """Return the preferred default account index for exchange selectors."""
+
+    if not options:
+        return 0
+
+    if preferred_option is not None:
+        for index, option in enumerate(options):
+            if exclude_option is not None and option == exclude_option:
+                continue
+            if option == preferred_option:
+                return index
+
+    for index, option in enumerate(options):
+        if exclude_option is not None and option == exclude_option:
+            continue
+        if option[2] == preferred_currency:
+            return index
+
+    for index, option in enumerate(options):
+        if exclude_option is None or option != exclude_option:
+            return index
+    return 0
+
+
+def format_exchange_rate(
+    value: Decimal,
+    *,
+    base_currency: str,
+    quote_currency: str,
+) -> str:
+    """Return one user-facing exchange-rate label."""
+
+    if base_currency == quote_currency:
+        return f"Same-currency transfer ({base_currency})"
+    return f"1 {base_currency} = {Decimal(value):,.4f} {quote_currency}"
+
+
+def build_exchange_history_rows(
+    exchanges: list[StoredExchangeRecord],
+) -> list[dict[str, object]]:
+    """Build deletable exchange history rows for the UI."""
+
+    rows: list[dict[str, object]] = []
+    for exchange in exchanges:
+        record_type = (
+            "Transfer"
+            if exchange.from_currency == exchange.to_currency
+            else "Exchange"
+        )
+        rows.append(
+            {
+                "Delete": False,
+                "Date": exchange.exchange_date,
+                "Type": record_type,
+                "From Account": format_finance_account_option(
+                    exchange.from_institution,
+                    exchange.from_account,
+                    exchange.from_currency,
+                ),
+                "Paid Amount": format_finance_amount(exchange.from_amount),
+                "Fee": (
+                    ""
+                    if exchange.fee_amount is None
+                    else format_finance_amount(exchange.fee_amount)
+                ),
+                "To Account": format_finance_account_option(
+                    exchange.to_institution,
+                    exchange.to_account,
+                    exchange.to_currency,
+                ),
+                "Received Amount": format_finance_amount(exchange.to_amount),
+                "Rate": format_exchange_rate(
+                    exchange.display_rate_value,
+                    base_currency=exchange.display_rate_base_currency,
+                    quote_currency=exchange.display_rate_quote_currency,
+                ),
+                "Notes": exchange.notes or "",
+            }
+        )
+    return rows
+
+
 def fetch_latest_reference_fx_rates() -> tuple[dict[str, Decimal], str, str]:
     """Fetch lightweight reference FX rates for supported finance currencies."""
 
@@ -3169,6 +4101,7 @@ def render_finance_situation_section() -> None:
         latest_entries = fetch_finance_snapshot_entries()
         history_entries = fetch_finance_snapshot_history()
         available_dates = fetch_finance_snapshot_dates()
+        exchange_records = fetch_exchange_records()
     except DatabaseConnectionError as exc:
         st.error(str(exc))
         return
@@ -3528,6 +4461,226 @@ def render_finance_situation_section() -> None:
     else:
         st.info("Enter the HKD reference rates or click `Update FX rate` to see converted totals.")
 
+    st.markdown("**Transfers and exchange records**")
+    if len(latest_entries) < 2:
+        st.info("Add at least two finance accounts before saving transfers or exchange records.")
+    else:
+        exchange_account_options = get_finance_history_account_options(latest_entries)
+        default_from_index = get_exchange_default_account_index(
+            exchange_account_options,
+            preferred_currency="HKD",
+            preferred_option=("IBKR", "HKD", "HKD"),
+        )
+        default_from_option = exchange_account_options[default_from_index]
+        default_to_index = get_exchange_default_account_index(
+            exchange_account_options,
+            preferred_currency="GBP",
+            preferred_option=("IBKR", "GBP", "GBP"),
+            exclude_option=default_from_option,
+        )
+
+        with st.form("exchange_record_form"):
+            exchange_date = st.date_input(
+                "Exchange date",
+                value=date.today(),
+                key="exchange_record_date",
+            )
+            exchange_col1, exchange_col2 = st.columns(2)
+            with exchange_col1:
+                selected_from_option = st.selectbox(
+                    "Paid from",
+                    options=exchange_account_options,
+                    index=default_from_index,
+                    format_func=format_finance_history_account_option,
+                    key="exchange_from_account",
+                )
+                from_amount = st.text_input(
+                    "Paid amount",
+                    key="exchange_from_amount",
+                    placeholder="e.g. 7800.00",
+                )
+            with exchange_col2:
+                selected_to_option = st.selectbox(
+                    "Received into",
+                    options=exchange_account_options,
+                    index=default_to_index,
+                    format_func=format_finance_history_account_option,
+                    key="exchange_to_account",
+                )
+                to_amount = st.text_input(
+                    "Received amount",
+                    key="exchange_to_amount",
+                    placeholder="e.g. 765.40",
+                )
+                fee_amount = st.text_input(
+                    f"Fee ({selected_to_option[2]}) optional",
+                    key="exchange_fee_amount",
+                    placeholder="e.g. 5.00",
+                )
+            exchange_notes = st.text_input(
+                "Notes (optional)",
+                key="exchange_notes",
+                placeholder="e.g. HSBC HK to Monzo",
+            )
+
+            preview_error: str | None = None
+            exchange_preview: ExchangeRecord | None = None
+            try:
+                exchange_preview = validate_exchange_record(
+                    build_exchange_record_payload(
+                        exchange_date=exchange_date,
+                        from_account_option=selected_from_option,
+                        from_amount=from_amount,
+                        fee_amount=fee_amount,
+                        to_account_option=selected_to_option,
+                        to_amount=to_amount,
+                        notes=exchange_notes,
+                    )
+                )
+            except ValidationError as exc:
+                if any(
+                    str(value).strip()
+                    for value in (from_amount, fee_amount, to_amount, exchange_notes)
+                ) or selected_from_option != selected_to_option:
+                    preview_error = str(exc)
+
+            if exchange_preview is not None:
+                preview_text = format_exchange_rate(
+                    exchange_preview.display_rate_value,
+                    base_currency=exchange_preview.display_rate_base_currency,
+                    quote_currency=exchange_preview.display_rate_quote_currency,
+                )
+                if exchange_preview.from_currency == exchange_preview.to_currency:
+                    st.caption(
+                        "Transfer preview: same-currency movement between accounts."
+                    )
+                else:
+                    st.caption("Actual rate: " + preview_text)
+                if exchange_preview.fee_amount is not None and exchange_preview.fee_amount > 0:
+                    st.caption(
+                        f"Fee applied: {format_finance_amount(exchange_preview.fee_amount)} "
+                        f"{exchange_preview.to_currency}."
+                    )
+            elif preview_error:
+                st.caption(f"Rate preview unavailable: {preview_error}")
+
+            save_exchange = st.form_submit_button(
+                "Save transfer or exchange",
+                use_container_width=True,
+            )
+
+        if save_exchange:
+            try:
+                validated_exchange = validate_exchange_record(
+                    build_exchange_record_payload(
+                        exchange_date=exchange_date,
+                        from_account_option=selected_from_option,
+                        from_amount=from_amount,
+                        fee_amount=fee_amount,
+                        to_account_option=selected_to_option,
+                        to_amount=to_amount,
+                        notes=exchange_notes,
+                    )
+                )
+            except ValidationError as exc:
+                st.error(str(exc))
+                return
+
+            try:
+                stored_exchange = insert_exchange_record_with_finance_link(validated_exchange)
+            except (DatabaseConnectionError, FinanceLinkError) as exc:
+                st.error(str(exc))
+                return
+
+            saved_label = (
+                "transfer"
+                if stored_exchange.from_currency == stored_exchange.to_currency
+                else "exchange"
+            )
+            success_message = f"Saved {saved_label} #{stored_exchange.id}"
+            if stored_exchange.from_currency != stored_exchange.to_currency:
+                success_message += ": " + format_exchange_rate(
+                    stored_exchange.display_rate_value,
+                    base_currency=stored_exchange.display_rate_base_currency,
+                    quote_currency=stored_exchange.display_rate_quote_currency,
+                )
+            st.success(
+                success_message + "."
+            )
+            st.rerun()
+
+    if exchange_records:
+        exchange_history_df = pd.DataFrame(
+            build_exchange_history_rows(exchange_records),
+            index=[exchange.id for exchange in exchange_records],
+        )
+        edited_exchange_history_df = st.data_editor(
+            exchange_history_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            column_config={
+                "Delete": st.column_config.CheckboxColumn("Delete"),
+                "Date": st.column_config.DateColumn("Date", format="YYYY-MM-DD"),
+                "Type": st.column_config.TextColumn("Type"),
+                "From Account": st.column_config.TextColumn("From Account"),
+                "Paid Amount": st.column_config.TextColumn("Paid Amount"),
+                "Fee": st.column_config.TextColumn("Fee"),
+                "To Account": st.column_config.TextColumn("To Account"),
+                "Received Amount": st.column_config.TextColumn("Received Amount"),
+                "Rate": st.column_config.TextColumn("Rate"),
+                "Notes": st.column_config.TextColumn("Notes"),
+            },
+            disabled=[
+                "Date",
+                "Type",
+                "From Account",
+                "Paid Amount",
+                "Fee",
+                "To Account",
+                "Received Amount",
+                "Rate",
+                "Notes",
+            ],
+            key="exchange_history_editor",
+        )
+        selected_exchange_ids = collect_selected_finance_history_ids(
+            edited_exchange_history_df
+        )
+        if selected_exchange_ids:
+            st.caption(
+                f"Selected {len(selected_exchange_ids)} transfer/exchange record(s) for deletion."
+            )
+            confirm_exchange_delete = st.checkbox(
+                f"I confirm that I want to delete {len(selected_exchange_ids)} transfer/exchange record(s)",
+                key="confirm_exchange_delete",
+            )
+            if st.button(
+                "Delete selected transfer/exchange records",
+                use_container_width=True,
+                key="delete_exchange_records",
+            ):
+                if not confirm_exchange_delete:
+                    st.error("Confirm transfer/exchange deletion before deleting selected records.")
+                    return
+
+                deleted_exchange_count = 0
+                for exchange_id in selected_exchange_ids:
+                    try:
+                        deleted = delete_exchange_record_with_finance_link(exchange_id)
+                    except (DatabaseConnectionError, FinanceLinkError) as exc:
+                        st.error(str(exc))
+                        return
+                    if not deleted:
+                        st.error(f"Transfer/exchange record #{exchange_id} could not be deleted.")
+                        return
+                    deleted_exchange_count += 1
+
+                st.success(f"Deleted {deleted_exchange_count} transfer/exchange record(s).")
+                st.rerun()
+    else:
+        st.caption("No transfer or exchange records saved yet.")
+
     st.markdown("**Full balance history**")
     history_filter_options = ["All dates", *available_dates]
     history_account_options = ["All bank accounts", *get_finance_history_account_options(history_entries)]
@@ -3582,8 +4735,9 @@ def render_finance_situation_section() -> None:
             "Account",
             "Currency",
             "Balance",
-            "Related Expense Item",
-            "Related Expense Amount",
+            "Related Type",
+            "Related Item",
+            "Related Amount",
             "Account Type",
             "Notes",
         ],
@@ -3600,8 +4754,9 @@ def render_finance_situation_section() -> None:
             "Account": st.column_config.TextColumn("Account"),
             "Currency": st.column_config.TextColumn("Currency"),
             "Balance": st.column_config.TextColumn("Balance"),
-            "Related Expense Item": st.column_config.TextColumn("Related Expense Item"),
-            "Related Expense Amount": st.column_config.TextColumn("Related Expense Amount"),
+            "Related Type": st.column_config.TextColumn("Related Type"),
+            "Related Item": st.column_config.TextColumn("Related Item"),
+            "Related Amount": st.column_config.TextColumn("Related Amount"),
             "Account Type": st.column_config.TextColumn("Account Type"),
             "Notes": st.column_config.TextColumn("Notes"),
         },
@@ -3611,8 +4766,9 @@ def render_finance_situation_section() -> None:
             "Account",
             "Currency",
             "Balance",
-            "Related Expense Item",
-            "Related Expense Amount",
+            "Related Type",
+            "Related Item",
+            "Related Amount",
             "Account Type",
             "Notes",
         ],
@@ -3620,6 +4776,9 @@ def render_finance_situation_section() -> None:
     )
     selected_history_ids = collect_selected_finance_history_ids(edited_history_df)
     if selected_history_ids:
+        selected_history_entries = {
+            entry.id: entry for entry in filtered_history_entries
+        }
         st.caption(
             f"Selected {len(selected_history_ids)} history row(s) for deletion."
         )
@@ -3634,6 +4793,14 @@ def render_finance_situation_section() -> None:
         ):
             if not confirm_history_delete:
                 st.error("Confirm history row deletion before deleting selected rows.")
+                return
+            if any(
+                selected_history_entries[entry_id].related_record_type in {"Exchange", "Transfer"}
+                for entry_id in selected_history_ids
+            ):
+                st.error(
+                    "Transfer/exchange-linked history rows must be deleted from the transfer/exchange records table so both balances stay in sync."
+                )
                 return
 
             deleted_history_count = 0
@@ -3666,9 +4833,12 @@ def build_category_chart_df(
             {"category": row["category"], "amount": float(row[amount_key])}
             for row in category_rows
             if Decimal(row[amount_key]) > 0
-        ]
+        ],
+        columns=["category", "amount"],
     )
     if category_chart_df.empty:
+        category_chart_df["percentage"] = pd.Series(dtype="float64")
+        category_chart_df["percentage_label"] = pd.Series(dtype="object")
         return category_chart_df
 
     total_category_amount = category_chart_df["amount"].sum()
@@ -3709,6 +4879,396 @@ def build_category_color_scale(categories: list[str]) -> alt.Scale:
         domain=categories,
         range=[get_category_color(category) for category in categories],
     )
+
+
+def render_summary_metric_card(*, label: str, value: str, subtext: str) -> None:
+    """Render one HTML metric card matching the reference dashboard style."""
+
+    st.markdown(
+        (
+            "<div style='background:#ffffff; border:1px solid #e3e8f3; border-radius:1.1rem; "
+            "padding:1.15rem 1.35rem; min-height:7.4rem; box-shadow:0 8px 26px rgba(15, 23, 42, 0.04);'>"
+            f"<div style='font-size:0.8rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#8a97ae; margin-bottom:0.65rem;'>{label}</div>"
+            f"<div style='font-size:2.25rem; font-weight:700; line-height:1.1; color:#1f2638; margin-bottom:0.35rem;'>{value}</div>"
+            f"<div style='font-size:1rem; color:#8392aa; font-weight:500;'>{subtext}</div>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def render_dashboard_metric_card(
+    *,
+    label: str,
+    value: str,
+    subtext: str,
+    value_color: str = "",
+) -> None:
+    """Render one dashboard metric card with optional colored value."""
+
+    color_class = f" {value_color}" if value_color else ""
+    st.markdown(
+        (
+            "<div class='mc'>"
+            f"<div class='mc-label'>{label}</div>"
+            f"<div class='mc-value{color_class}'>{value}</div>"
+            f"<div class='mc-sub'>{subtext}</div>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def build_dashboard_rate_subtext(
+    *,
+    numerator: Decimal,
+    denominator: Decimal,
+    suffix: str,
+) -> str:
+    """Return one percentage subtitle for dashboard metric cards."""
+
+    if denominator <= 0:
+        return suffix
+    percentage = (numerator / denominator * 100).quantize(Decimal("0.1"))
+    return f"{percentage}% {suffix}"
+
+
+def format_signed_currency(value: Decimal) -> str:
+    """Return one signed GBP string for dashboard cash-flow cards."""
+
+    sign = "+" if value >= 0 else "-"
+    return f"{sign}£{format_finance_amount(abs(value))}"
+
+
+def get_dashboard_cash_metrics(summary) -> tuple[Decimal, Decimal, Decimal]:
+    """Return cash-flow metrics with backward-compatible fallbacks."""
+
+    cash_inflow_gbp = getattr(summary, "cash_inflow_gbp", Decimal("0.00"))
+    cash_outflow_gbp = getattr(summary, "cash_outflow_gbp", Decimal("0.00"))
+    net_cash_flow_gbp = getattr(summary, "net_cash_flow_gbp", None)
+    if net_cash_flow_gbp is None:
+        net_cash_flow_gbp = cash_inflow_gbp - cash_outflow_gbp
+    return cash_inflow_gbp, cash_outflow_gbp, net_cash_flow_gbp
+
+
+def render_top_categories_card(
+    category_rows: list[dict[str, object]],
+    *,
+    currency_code: str = "GBP",
+    max_items: int = 5,
+) -> None:
+    """Render a top-categories card with ranked horizontal bars."""
+
+    amount_key = "amount_hkd" if currency_code == "HKD" else "amount_gbp"
+    top_rows = [
+        row for row in category_rows if Decimal(row[amount_key]) > 0
+    ][:max_items]
+
+    if not top_rows:
+        st.markdown(
+            "<div class='card-section'>"
+            "<div class='card-title'>Top categories</div>"
+            "<div style='font-size:0.88rem; color:#8492a6;'>No expense data for this period.</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    total_amount = sum(Decimal(row[amount_key]) for row in category_rows if Decimal(row[amount_key]) > 0)
+    max_amount = Decimal(top_rows[0][amount_key]) if top_rows else Decimal("1")
+
+    rows_html = ""
+    for rank, row in enumerate(top_rows, start=1):
+        amount = Decimal(row[amount_key])
+        pct = (amount / total_amount * 100) if total_amount > 0 else Decimal("0")
+        bar_width = int((amount / max_amount * 100)) if max_amount > 0 else 0
+        color = get_category_color(str(row["category"]))
+        rows_html += (
+            "<div class='top-cat-row'>"
+            f"<div class='top-cat-rank'>{rank}</div>"
+            "<div class='top-cat-bar-wrap'>"
+            "<div style='display:flex; justify-content:space-between; margin-bottom:0.3rem;'>"
+            f"<span class='top-cat-name'>"
+            f"<span style='display:inline-block; width:0.55rem; height:0.55rem; border-radius:50%; background:{color}; margin-right:0.4rem;'></span>"
+            f"{row['category']}</span>"
+            f"<span class='top-cat-amt'>{currency_code} {amount:,.2f} · {pct:.0f}%</span>"
+            "</div>"
+            f"<div class='bar-track'><div class='bar-fill' style='width:{bar_width}%; background:{color};'></div></div>"
+            "</div>"
+            "</div>"
+        )
+
+    remaining = len([r for r in category_rows if Decimal(r[amount_key]) > 0]) - max_items
+    footer_html = ""
+    if remaining > 0:
+        footer_html = (
+            "<div style='margin-top:0.8rem; padding-top:0.7rem; border-top:1px solid #f3f4f8; "
+            f"font-size:0.82rem; color:#8492a6;'>{remaining} more categor{'y' if remaining == 1 else 'ies'}</div>"
+        )
+
+    st.markdown(
+        "<div class='card-section'>"
+        "<div class='card-title'>Top categories</div>"
+        f"{rows_html}{footer_html}"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_finance_snapshot_card(
+    currency_summary: list[dict[str, object]],
+    *,
+    bicurrency_totals: "reports_module.FinanceBicurrencyTotals | None" = None,
+) -> None:
+    """Render a finance snapshot card with account balance rows."""
+
+    rows_html = ""
+    for row in currency_summary:
+        currency = str(row["currency"])
+        balance = Decimal(row["balance"])
+        rows_html += (
+            "<div class='fin-row'>"
+            f"<span class='fin-label'>{currency}</span>"
+            f"<span class='fin-bal'>{format_finance_amount(balance)}</span>"
+            "</div>"
+        )
+
+    summary_html = ""
+    if bicurrency_totals is not None:
+        summary_html = (
+            "<div class='fin-total'>"
+            "<span>Excl. Mum's Time D (GBP)</span>"
+            f"<span>{format_finance_amount(bicurrency_totals.total_gbp_excluding_mums_time_d)}</span>"
+            "</div>"
+            "<div class='fin-total'>"
+            "<span>Excl. Mum's Time D (HKD)</span>"
+            f"<span>{format_finance_amount(bicurrency_totals.total_hkd_excluding_mums_time_d)}</span>"
+            "</div>"
+            "<div class='fin-total'>"
+            "<span>Incl. Mum's Time D (GBP)</span>"
+            f"<span>{format_finance_amount(bicurrency_totals.total_gbp_including_mums_time_d)}</span>"
+            "</div>"
+            "<div class='fin-total'>"
+            "<span>Incl. Mum's Time D (HKD)</span>"
+            f"<span>{format_finance_amount(bicurrency_totals.total_hkd_including_mums_time_d)}</span>"
+            "</div>"
+            "<div class='fin-total'>"
+            "<span>FX rate used (GBP/HKD)</span>"
+            f"<span>{bicurrency_totals.rate_gbp_hkd:,.4f}</span>"
+            "</div>"
+        )
+
+    st.markdown(
+        "<div class='card-section'>"
+        "<div class='card-title'>Finance snapshot</div>"
+        f"{rows_html}{summary_html}"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_expense_breakout_card(
+    breakout: "ExpenseBreakoutSummary",
+    *,
+    total_expense_paid_gbp: Decimal,
+    total_expense_used_gbp: Decimal | None = None,
+    displayed_tax_gbp: Decimal,
+    transactions: list[StoredExpenseTransaction],
+    month_rates_by_month: dict[date, dict[str, Decimal]] | None = None,
+) -> None:
+    """Render an expense breakout card with the requested GBP-only layout."""
+
+    housing_expense_gbp = Decimal("0")
+    family_expense_gbp = Decimal("0")
+    uk_settlement_gbp = Decimal("0")
+    large_one_off_gbp = Decimal("0")
+    travel_expense_gbp = Decimal("0")
+
+    for transaction in transactions:
+        if is_tax_payment_group(transaction.group_name):
+            continue
+
+        amount_gbp = build_expense_transaction_total_gbp(
+            transaction,
+            month_rates_by_month=month_rates_by_month,
+        )
+        normalized_group = " ".join(transaction.group_name.strip().split()).lower()
+        normalized_category = " ".join(transaction.category.strip().split()).lower()
+
+        if normalized_category == "housing":
+            housing_expense_gbp += amount_gbp
+            continue
+        if normalized_group == "family":
+            family_expense_gbp += amount_gbp
+            continue
+        if normalized_group == "uk settlement" or normalized_category in {"visa", "exam"}:
+            uk_settlement_gbp += amount_gbp
+            continue
+        if normalized_group == "large one-off" or normalized_category == "car related: one-off":
+            large_one_off_gbp += amount_gbp
+            continue
+        if normalized_group == "travel" or normalized_category in {"travel", "trip", "flight ticket"}:
+            travel_expense_gbp += amount_gbp
+
+    regular_non_housing_gbp = (
+        total_expense_paid_gbp
+        - housing_expense_gbp
+        - family_expense_gbp
+        - uk_settlement_gbp
+        - large_one_off_gbp
+        - travel_expense_gbp
+    )
+    basis_choice = st.segmented_control(
+        "Expense breakout basis",
+        options=["Paid", "Used"],
+        default="Paid",
+        key="dashboard_expense_breakout_basis",
+        label_visibility="collapsed",
+    )
+    selected_total_expense_gbp = (
+        total_expense_used_gbp
+        if basis_choice == "Used" and total_expense_used_gbp is not None
+        else total_expense_paid_gbp
+    )
+    total_incl_tax_gbp = selected_total_expense_gbp + displayed_tax_gbp
+
+    def _bk_row(label: str, gbp: Decimal, *, is_total: bool = False) -> str:
+        row_class = "bk-row bk-row-total" if is_total else "bk-row"
+        return (
+            f"<div class='{row_class}'>"
+            f"<span class='bk-type'>{label}</span>"
+            f"<span class='bk-gbp'>£{format_finance_amount(gbp)}</span>"
+            "</div>"
+        )
+
+    rows_html = (
+        _bk_row("Housing", housing_expense_gbp)
+        + _bk_row("Regular non-housing expenses", regular_non_housing_gbp)
+        + _bk_row("Family", family_expense_gbp)
+        + _bk_row("UK Settlement", uk_settlement_gbp)
+        + _bk_row("Large One-off", large_one_off_gbp)
+        + _bk_row("Travel", travel_expense_gbp)
+        + _bk_row("Total before tax", selected_total_expense_gbp, is_total=True)
+        + _bk_row("Tax payment", displayed_tax_gbp)
+    )
+
+    total_row = _bk_row("Total including tax", total_incl_tax_gbp, is_total=True)
+
+    if basis_choice == "Used" and total_expense_used_gbp is not None:
+        st.caption("Used basis adjusts the total rows; category lines still show paid transactions.")
+
+    st.markdown(
+        "<div class='card-section'>"
+        "<div class='card-title'>Expense breakout</div>"
+        f"{rows_html}{total_row}"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def get_report_period_bounds_from_mode(
+    *,
+    transactions: list[StoredExpenseTransaction],
+    period_mode: str,
+) -> tuple[date, date]:
+    """Return report bounds for one explicit period mode."""
+
+    dates = [transaction.transaction_date for transaction in transactions]
+    today_value = date.today()
+    min_date = min(dates) if dates else today_value
+    max_date = max(dates) if dates else today_value
+
+    if period_mode == "Month":
+        month_options = sorted(
+            {
+                *[transaction.transaction_date.replace(day=1) for transaction in transactions],
+                today_value.replace(day=1),
+            },
+            reverse=True,
+        )
+        default_month = today_value.replace(day=1)
+        selected_month = st.selectbox(
+            "Month",
+            options=month_options,
+            index=month_options.index(default_month),
+            format_func=lambda value: value.strftime("%B %Y"),
+            key="report_month_v2",
+            label_visibility="collapsed",
+        )
+        if selected_month.month == 12:
+            next_month_start = date(selected_month.year + 1, 1, 1)
+        else:
+            next_month_start = date(selected_month.year, selected_month.month + 1, 1)
+        month_end = next_month_start.fromordinal(next_month_start.toordinal() - 1)
+        return (selected_month, month_end)
+
+    if period_mode == "Financial year":
+        fy_start_years = sorted(
+            {
+                2021,
+                2022,
+                get_financial_year_start(today_value).year,
+                *[get_financial_year_start(value).year for value in dates],
+            },
+            reverse=True,
+        )
+        default_fy_start_year = get_financial_year_start(today_value).year
+        selected_fy_start_year = st.selectbox(
+            "Financial year",
+            options=fy_start_years,
+            index=fy_start_years.index(default_fy_start_year),
+            format_func=lambda value: f"Financial year {value}/{str(value + 1)[-2:]}",
+            key="report_financial_year_v2",
+            label_visibility="collapsed",
+        )
+        return (date(selected_fy_start_year, 4, 6), date(selected_fy_start_year + 1, 4, 5))
+
+    if period_mode == "Calendar year":
+        calendar_years = sorted({value.year for value in [*dates, today_value]}, reverse=True)
+        selected_year = st.selectbox(
+            "Calendar year",
+            options=calendar_years,
+            index=calendar_years.index(today_value.year),
+            key="report_calendar_year_v2",
+            label_visibility="collapsed",
+        )
+        return (date(selected_year, 1, 1), date(selected_year, 12, 31))
+
+    custom_col1, custom_col2 = st.columns(2)
+    default_start_date = max(min_date, today_value.replace(day=1))
+    default_end_date = min(max_date, today_value)
+    if default_start_date > default_end_date:
+        default_start_date = min_date
+        default_end_date = max_date
+    with custom_col1:
+        start_date = st.date_input(
+            "From",
+            value=default_start_date,
+            min_value=min_date,
+            max_value=max_date,
+            key="report_custom_start_date_v2",
+        )
+    with custom_col2:
+        end_date = st.date_input(
+            "To",
+            value=default_end_date,
+            min_value=min_date,
+            max_value=max_date,
+            key="report_custom_end_date_v2",
+        )
+    return (start_date, end_date)
+
+
+def build_report_period_hint(*, period_mode: str, start_date: date, end_date: date) -> str:
+    """Return the compact top-right period hint label for reports."""
+
+    if period_mode == "Financial year":
+        return build_financial_year_label(start_date)
+    if period_mode == "Month":
+        return start_date.strftime("%B %Y")
+    if period_mode == "Calendar year":
+        return str(start_date.year)
+    return f"{start_date.isoformat()} to {end_date.isoformat()}"
 
 
 def _hex_to_rgba(hex_color: str, alpha: float) -> str:
@@ -3937,7 +5497,7 @@ def render_transaction_grid() -> None:
                 required=True,
             ),
             "Amount (GBP)": st.column_config.NumberColumn(
-                "Amount (GBP)", min_value=0.0, step=0.01, format="%.2f"
+                "Amount (GBP)", step=0.01, format="%.2f"
             ),
             "Amount (HKD)": st.column_config.TextColumn("Amount (HKD)"),
             "Tax Deductable": st.column_config.CheckboxColumn("Tax Deductable"),
@@ -4159,7 +5719,6 @@ def render_recurring_expenses_section() -> None:
             )
             amount_gbp = st.number_input(
                 "Amount (GBP)",
-                min_value=0.0,
                 step=0.01,
                 format="%.2f",
                 key="new_recurring_amount_gbp",
@@ -4283,7 +5842,6 @@ def render_recurring_expenses_section() -> None:
                 )
                 amount_gbp = st.number_input(
                     "Amount (GBP)",
-                    min_value=0.0,
                     step=0.01,
                     format="%.2f",
                     value=float(template.amount_gbp),
@@ -4529,10 +6087,6 @@ def render_import_section() -> None:
 
 def render_reports_section() -> None:
     """Render the expense reports section."""
-
-    st.subheader("Reports")
-    st.caption("View monthly spending, category totals, necessaries spending, and overall trend.")
-
     try:
         transactions = fetch_transactions()
     except DatabaseConnectionError as exc:
@@ -4547,89 +6101,81 @@ def render_reports_section() -> None:
         return
 
     group_options = get_editor_group_options(transactions)
+    period_mode = st.segmented_control(
+        "Report period",
+        options=["Month", "Financial year", "Calendar year", "Custom"],
+        default="Financial year",
+        key="report_period_mode_pills",
+    )
+    start_date, end_date = get_report_period_bounds_from_mode(
+        transactions=transactions,
+        period_mode=period_mode,
+    )
+    if start_date > end_date:
+        st.error("The report start date must be on or before the end date.")
+        return
 
-    start_date, end_date = get_report_period_bounds(transactions=transactions)
-
-    report_col3, report_col4 = st.columns(2)
-    with report_col3:
-        st.markdown("Report group filter")
-        group_operator = st.selectbox(
-            "Group filter operator",
-            options=("Is", "Is not", "Is empty", "Is not empty"),
-            index=0,
-            key="report_group_operator",
-            label_visibility="collapsed",
-        )
-        selected_groups = group_options
-        if group_operator in {"Is", "Is not"}:
-            with st.popover("Choose groups"):
-                selected_groups = render_checkbox_filter(
-                    label="Groups",
-                    options=group_options,
-                    key_prefix="report_group_filter",
-                    default_selected=[DEFAULT_TRANSACTION_GROUP],
-                )
-            st.caption(
-                "All groups selected."
-                if len(selected_groups) == len(group_options)
-                else f"{len(selected_groups)} group(s) selected."
-            )
-        else:
-            st.caption(f"Current rule: {group_operator}.")
+    period_hint = build_report_period_hint(
+        period_mode=period_mode,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    st.markdown(
+        f"<div style='text-align:right; color:#8a97ae; font-size:0.95rem; font-weight:600; margin-top:-0.35rem; margin-bottom:0.8rem;'>{period_hint}</div>",
+        unsafe_allow_html=True,
+    )
 
     category_options = get_report_category_options(
         transactions,
         start_date=start_date,
         end_date=end_date,
-        selected_groups=selected_groups,
-        group_operator=group_operator,
+        selected_groups=group_options,
+        group_operator="Is",
     )
 
-    with report_col4:
-        st.markdown("Report category filter")
-        category_operator = st.selectbox(
-            "Category filter operator",
-            options=("Is", "Is not", "Is empty", "Is not empty"),
-            index=0,
-            key="report_category_operator",
+    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns([1.45, 1.25, 1.2, 0.8])
+    with filter_col1:
+        st.selectbox(
+            "Period selection",
+            options=[period_hint],
+            key="report_period_summary_value",
             label_visibility="collapsed",
         )
-        selected_categories = category_options
-        if category_operator in {"Is", "Is not"}:
-            with st.popover("Choose categories"):
-                selected_categories = render_checkbox_filter(
-                    label="Categories",
-                    options=category_options,
-                    key_prefix="report_category_filter",
-                )
-            st.caption(
-                "All categories selected."
-                if len(selected_categories) == len(category_options)
-                else f"{len(selected_categories)} category(s) selected."
-            )
-        else:
-            st.caption(f"Current rule: {category_operator}.")
+    with filter_col2:
+        group_default_index = 0
+        if DEFAULT_TRANSACTION_GROUP in group_options:
+            group_default_index = 1 + group_options.index(DEFAULT_TRANSACTION_GROUP)
+        group_choice = st.selectbox(
+            "Group",
+            options=["All groups", *group_options],
+            index=group_default_index,
+            key="report_group_simple",
+            label_visibility="collapsed",
+        )
+    with filter_col3:
+        category_choice = st.selectbox(
+            "Category",
+            options=["All categories", *category_options],
+            index=0,
+            key="report_category_simple",
+            label_visibility="collapsed",
+        )
+    with filter_col4:
+        if st.button("Refresh", use_container_width=True, key="report_refresh"):
+            st.rerun()
 
-    if start_date > end_date:
-        st.error("The report start date must be on or before the end date.")
-        return
-
-    if group_operator in {"Is", "Is not"} and not selected_groups:
-        st.info("Select at least one group to view the report.")
-        return
-
-    if category_operator in {"Is", "Is not"} and not selected_categories:
-        st.info("Select at least one category to view the report.")
-        return
-
+    selected_groups = group_options if group_choice == "All groups" else [group_choice]
+    selected_categories = (
+        category_options if category_choice == "All categories" else [category_choice]
+    )
     filtered_transactions = filter_report_transactions(
         transactions,
         start_date=start_date,
         end_date=end_date,
         selected_categories=selected_categories,
         selected_groups=selected_groups,
-        category_operator=category_operator,
-        group_operator=group_operator,
+        category_operator="Is",
+        group_operator="Is",
     )
 
     if not filtered_transactions:
@@ -4637,10 +6183,32 @@ def render_reports_section() -> None:
         return
 
     summary = build_expense_report_summary(filtered_transactions)
-    metric_col1, metric_col2, metric_col3 = st.columns(3)
-    metric_col1.metric("Total GBP", f"GBP {summary.total_spend_gbp:.2f}")
-    metric_col2.metric("Total HKD", f"HKD {summary.total_spend_hkd:.2f}")
-    metric_col3.metric("Transactions", str(summary.transaction_count))
+    tax_split_summary = build_expense_tax_split_summary(filtered_transactions)
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+    with metric_col1:
+        render_summary_metric_card(
+            label="Expenses Ex Tax (GBP)",
+            value=f"GBP {tax_split_summary.expense_ex_tax_gbp:.2f}",
+            subtext="Filtered period",
+        )
+    with metric_col2:
+        render_summary_metric_card(
+            label="Tax Payments (GBP)",
+            value=f"GBP {tax_split_summary.tax_payments_gbp:.2f}",
+            subtext="Filtered period",
+        )
+    with metric_col3:
+        render_summary_metric_card(
+            label="Expenses Ex Tax (HKD)",
+            value=f"HKD {tax_split_summary.expense_ex_tax_hkd:.2f}",
+            subtext="HKD expenses only",
+        )
+    with metric_col4:
+        render_summary_metric_card(
+            label="Transactions",
+            value=str(tax_split_summary.transaction_count),
+            subtext="In date range",
+        )
 
     category_rows = build_category_spending_report(filtered_transactions)
     trend_rows = build_monthly_trend_report(filtered_transactions)
@@ -4651,29 +6219,33 @@ def render_reports_section() -> None:
         for transaction in filtered_transactions
     ):
         report_currency_options.append("HKD")
-    report_currency = st.segmented_control(
-        "Report currency",
-        options=report_currency_options,
-        default=report_currency_options[0],
-        key="report_currency",
-    )
-    amount_key = "amount_hkd" if report_currency == "HKD" else "amount_gbp"
 
-    st.markdown("**Spending by category**")
+    heading_col1, heading_col2 = st.columns([1.3, 1])
+    with heading_col1:
+        st.markdown("### Spending by category")
+        category_chart_type = st.segmented_control(
+            "Category chart type",
+            options=["Bar", "Pie"],
+            default="Bar",
+            key="category_chart_type",
+        )
+    with heading_col2:
+        report_currency = st.segmented_control(
+            "Report currency",
+            options=report_currency_options,
+            default=report_currency_options[0],
+            key="report_currency",
+        )
+
+    amount_key = "amount_hkd" if report_currency == "HKD" else "amount_gbp"
     category_chart_df = build_category_chart_df(category_rows, amount_key=amount_key)
     category_scale = build_category_color_scale(category_chart_df["category"].tolist())
-    category_chart_type = st.segmented_control(
-        "Category chart type",
-        options=["Bar", "Pie"],
-        default="Bar",
-        key="category_chart_type",
-    )
     if category_chart_type == "Pie":
         pie_chart_df = build_pie_chart_df(category_chart_df)
         pie_chart_scale = build_category_color_scale(pie_chart_df["category"].tolist())
         st.altair_chart(
             alt.Chart(pie_chart_df)
-            .mark_arc()
+            .mark_arc(innerRadius=38)
             .encode(
                 theta=alt.Theta("amount:Q", title=f"Amount ({report_currency})"),
                 color=alt.Color(
@@ -4688,16 +6260,17 @@ def render_reports_section() -> None:
                     alt.Tooltip("amount:Q", title=f"Amount ({report_currency})", format=".2f"),
                     alt.Tooltip("percentage_label:N", title="Percentage"),
                 ],
-            ),
+            )
+            .properties(height=320),
             use_container_width=True,
         )
     else:
         st.altair_chart(
             alt.Chart(category_chart_df)
-            .mark_bar()
+            .mark_bar(cornerRadiusEnd=6, size=20)
             .encode(
-                x=alt.X("amount:Q", title=f"Amount ({report_currency})"),
-                y=alt.Y("category:N", sort="-x", title="Category"),
+                x=alt.X("amount:Q", title=None),
+                y=alt.Y("category:N", sort="-x", title=None),
                 color=alt.Color(
                     "category:N",
                     title="Category",
@@ -4709,12 +6282,19 @@ def render_reports_section() -> None:
                     alt.Tooltip("category:N", title="Category"),
                     alt.Tooltip("amount:Q", title=f"Amount ({report_currency})", format=".2f"),
                 ],
+            )
+            .properties(height=320)
+            .configure_axis(
+                gridColor="#e8ecf4",
+                tickColor="#d8e0ef",
+                domainColor="#d8e0ef",
+                labelColor="#8a97ae",
             ),
             use_container_width=True,
         )
     render_category_summary_table(category_chart_df, currency_code=report_currency)
 
-    st.markdown("**Living classification**")
+    st.markdown("### Living classification")
     living_classification_rows = build_living_classification_report(filtered_transactions)
     living_classification_df = build_category_chart_df(
         living_classification_rows,
@@ -4728,10 +6308,10 @@ def render_reports_section() -> None:
         )
         st.altair_chart(
             alt.Chart(living_classification_df)
-            .mark_bar()
+            .mark_bar(cornerRadiusEnd=6, size=18)
             .encode(
-                x=alt.X("amount:Q", title=f"Amount ({report_currency})"),
-                y=alt.Y("category:N", sort="-x", title="Living classification"),
+                x=alt.X("amount:Q", title=None),
+                y=alt.Y("category:N", sort="-x", title=None),
                 color=alt.Color(
                     "category:N",
                     title="Classification",
@@ -4744,7 +6324,8 @@ def render_reports_section() -> None:
                     alt.Tooltip("amount:Q", title=f"Amount ({report_currency})", format=".2f"),
                     alt.Tooltip("percentage_label:N", title="Percentage"),
                 ],
-            ),
+            )
+            .properties(height=260),
             use_container_width=True,
         )
         render_category_summary_table(
@@ -4752,7 +6333,7 @@ def render_reports_section() -> None:
             currency_code=report_currency,
         )
 
-    st.markdown("**Monthly trend**")
+    st.markdown("### Monthly trend")
     trend_chart_df = pd.DataFrame(
         [
             {"month": row["month"], "amount": float(row[amount_key])}
@@ -4761,19 +6342,20 @@ def render_reports_section() -> None:
     )
     st.altair_chart(
         alt.Chart(trend_chart_df)
-        .mark_line(point=True)
+        .mark_line(point=True, strokeWidth=3)
         .encode(
-            x=alt.X("month:N", title="Month"),
-            y=alt.Y("amount:Q", title=f"Amount ({report_currency})"),
+            x=alt.X("month:N", title=None),
+            y=alt.Y("amount:Q", title=None),
             tooltip=[
                 alt.Tooltip("month:N", title="Month"),
                 alt.Tooltip("amount:Q", title=f"Amount ({report_currency})", format=".2f"),
             ],
-        ),
+        )
+        .properties(height=240),
         use_container_width=True,
     )
 
-    st.markdown("**Largest expenses**")
+    st.markdown("### Largest expenses")
     st.dataframe(
         [
             {
@@ -4882,88 +6464,234 @@ def render_overall_dashboard_section() -> None:
         expense_month_rates_by_month=expense_month_rates_by_month,
         financial_year_expenses=financial_year_expenses,
     )
-
-    st.caption(
-        f"Selected period: {start_date.isoformat()} to {end_date.isoformat()}."
+    cash_inflow_gbp, cash_outflow_gbp, net_cash_flow_gbp = get_dashboard_cash_metrics(
+        dashboard_summary
     )
 
-    metric_col1, metric_col2, metric_col3 = st.columns(3)
-    metric_col1.metric(
-        "Gross Income (GBP)",
-        format_finance_amount(dashboard_summary.gross_income_gbp),
+    expense_paid_ex_tax_gbp = dashboard_summary.expense_gbp
+    expense_used_ex_tax_gbp = (
+        dashboard_summary.annualised_monthly_expense_gbp
+        if dashboard_summary.annualised_monthly_expense_gbp is not None
+        else dashboard_summary.expense_gbp
     )
-    metric_col2.metric(
-        "Expenses (GBP)",
-        format_finance_amount(dashboard_summary.expense_gbp),
-    )
-    metric_col3.metric(
-        "Net Saving (GBP)",
-        format_finance_amount(dashboard_summary.net_saving_gbp),
-    )
-
-    metric_col4, metric_col5, metric_col6 = st.columns(3)
-    metric_col4.metric(
-        "Total Tax Amount (GBP)",
-        format_finance_amount(dashboard_summary.total_tax_amount_gbp),
-    )
-    metric_col5.metric(
-        "Taxable Expense (GBP)",
-        format_finance_amount(dashboard_summary.taxable_expense_gbp),
-    )
-    metric_col6.metric(
-        "Taxable Income (GBP)",
-        format_finance_amount(dashboard_summary.taxable_income_gbp),
+    saving_paid_gbp = dashboard_summary.net_saving_after_tax_amount_gbp
+    saving_used_gbp = (
+        (
+            dashboard_summary.annualised_monthly_net_saving_gbp
+            - dashboard_summary.total_tax_amount_gbp
+        )
+        if dashboard_summary.annualised_monthly_net_saving_gbp is not None
+        else dashboard_summary.net_saving_after_tax_amount_gbp
     )
 
-    st.caption(
-        "Month uses financial-year tax due divided by 12. Financial Year reads tax due. "
-        "Calendar Year and Custom read tax paid from expenses."
-    )
+    top_row_col1, top_row_col2, top_row_col3, top_row_col4 = st.columns(4)
+    with top_row_col1:
+        render_dashboard_metric_card(
+            label="Gross income",
+            value=f"£{format_finance_amount(dashboard_summary.gross_income_gbp)}",
+            subtext=f"{start_date.isoformat()} to {end_date.isoformat()}",
+            value_color="pos",
+        )
+    with top_row_col2:
+        render_dashboard_metric_card(
+            label="Tax",
+            value=f"£{format_finance_amount(dashboard_summary.total_tax_amount_gbp)}",
+            subtext=build_dashboard_rate_subtext(
+                numerator=dashboard_summary.total_tax_amount_gbp,
+                denominator=dashboard_summary.gross_income_gbp,
+                suffix="of income",
+            ),
+        )
+    with top_row_col3:
+        render_dashboard_metric_card(
+            label="Taxable expense",
+            value=f"£{format_finance_amount(dashboard_summary.taxable_expense_gbp)}",
+            subtext=build_dashboard_rate_subtext(
+                numerator=dashboard_summary.taxable_expense_gbp,
+                denominator=dashboard_summary.gross_income_gbp,
+                suffix="of income",
+            ),
+            value_color="neg",
+        )
+    with top_row_col4:
+        render_dashboard_metric_card(
+            label="Net Cash Inflow / Outflow",
+            value=format_signed_currency(net_cash_flow_gbp),
+            subtext=build_dashboard_rate_subtext(
+                numerator=net_cash_flow_gbp,
+                denominator=dashboard_summary.gross_income_gbp,
+                suffix="of income",
+            ),
+            value_color="pos" if net_cash_flow_gbp >= 0 else "neg",
+        )
+
+    bottom_row_col1, bottom_row_col2, bottom_row_col3, bottom_row_col4 = st.columns(4)
+    with bottom_row_col1:
+        render_dashboard_metric_card(
+            label="Expense ex Tax (Used)",
+            value=f"£{format_finance_amount(expense_used_ex_tax_gbp)}",
+            subtext=build_dashboard_rate_subtext(
+                numerator=expense_used_ex_tax_gbp,
+                denominator=dashboard_summary.gross_income_gbp,
+                suffix="of income",
+            ),
+            value_color="neg",
+        )
+    with bottom_row_col2:
+        render_dashboard_metric_card(
+            label="Expense ex Tax (Paid)",
+            value=f"£{format_finance_amount(expense_paid_ex_tax_gbp)}",
+            subtext=build_dashboard_rate_subtext(
+                numerator=expense_paid_ex_tax_gbp,
+                denominator=dashboard_summary.gross_income_gbp,
+                suffix="of income",
+            ),
+            value_color="neg",
+        )
+    with bottom_row_col3:
+        render_dashboard_metric_card(
+            label="Saving (Used)",
+            value=f"£{format_finance_amount(saving_used_gbp)}",
+            subtext=build_dashboard_rate_subtext(
+                numerator=saving_used_gbp,
+                denominator=dashboard_summary.gross_income_gbp,
+                suffix="savings rate",
+            ),
+            value_color="pos" if saving_used_gbp >= 0 else "neg",
+        )
+    with bottom_row_col4:
+        render_dashboard_metric_card(
+            label="Saving (Paid)",
+            value=f"£{format_finance_amount(saving_paid_gbp)}",
+            subtext=build_dashboard_rate_subtext(
+                numerator=saving_paid_gbp,
+                denominator=dashboard_summary.gross_income_gbp,
+                suffix="savings rate",
+            ),
+            value_color="pos" if saving_paid_gbp >= 0 else "neg",
+        )
 
     if period_mode == "Month":
-        st.markdown("**Monthly Expense Views**")
-        st.caption(
-            "Paid Date uses the month you actually paid. Annual Spread replaces `Car Related: Annual` "
-            "payments with the matching financial year's annual total divided by 12."
+        trend_rows = build_daily_trend_report(
+            filtered_expenses,
+            month_rates_by_month=expense_month_rates_by_month,
         )
-        st.dataframe(
-            build_dashboard_monthly_view_rows(dashboard_summary),
-            use_container_width=True,
-            hide_index=True,
+        daily_category_rows = build_daily_category_trend_report(
+            filtered_expenses,
+            month_rates_by_month=expense_month_rates_by_month,
         )
+        trend_chart_df = pd.DataFrame(
+            [
+                {"label": row["day"], "amount": float(row["amount_gbp"])}
+                for row in trend_rows
+            ]
+        )
+        trend_stack_df = pd.DataFrame(
+            [
+                {
+                    "label": row["day"],
+                    "category": row["category"],
+                    "amount": float(row["amount_gbp"]),
+                }
+                for row in daily_category_rows
+            ]
+        )
+        trend_title = "Expenses by day"
+        trend_tooltip_title = "Day"
+    else:
+        trend_rows = build_monthly_trend_report(
+            filtered_expenses,
+            month_rates_by_month=expense_month_rates_by_month,
+        )
+        monthly_category_rows = build_monthly_category_trend_report(
+            filtered_expenses,
+            month_rates_by_month=expense_month_rates_by_month,
+        )
+        trend_chart_df = pd.DataFrame(
+            [
+                {"label": row["month"], "amount": float(row["amount_gbp"])}
+                for row in trend_rows
+            ]
+        )
+        trend_stack_df = pd.DataFrame(
+            [
+                {
+                    "label": row["month"],
+                    "category": row["category"],
+                    "amount": float(row["amount_gbp"]),
+                }
+                for row in monthly_category_rows
+            ]
+        )
+        trend_title = "Expenses by month"
+        trend_tooltip_title = "Month"
 
-    st.dataframe(
-        build_dashboard_secondary_rows(dashboard_summary),
-        use_container_width=True,
-        hide_index=True,
-    )
+    if not trend_chart_df.empty:
+        st.markdown(
+            "<div class='card-section'>"
+            f"<div class='card-title'>{trend_title}</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        if not trend_stack_df.empty and "category" in trend_stack_df.columns:
+            trend_scale = build_category_color_scale(
+                sorted(trend_stack_df["category"].unique().tolist())
+            )
+            st.altair_chart(
+                alt.Chart(trend_stack_df)
+                .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+                .encode(
+                    x=alt.X("label:N", title=None, axis=alt.Axis(labelAngle=0)),
+                    y=alt.Y("amount:Q", title=None, stack="zero"),
+                    color=alt.Color(
+                        "category:N",
+                        title="Category",
+                        scale=trend_scale,
+                    ),
+                    tooltip=[
+                        alt.Tooltip("label:N", title=trend_tooltip_title),
+                        alt.Tooltip("category:N", title="Category"),
+                        alt.Tooltip("amount:Q", title="Amount (GBP)", format=",.2f"),
+                    ],
+                )
+                .properties(height=240)
+                .configure_axis(
+                    gridColor="#f0f1f5",
+                    tickColor="transparent",
+                    domainColor="#e8ecf4",
+                    labelColor="#8492a6",
+                    labelFontSize=10,
+                )
+                .configure_view(strokeWidth=0),
+                use_container_width=True,
+            )
+        else:
+            st.altair_chart(
+                alt.Chart(trend_chart_df)
+                .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, color="#534AB7")
+                .encode(
+                    x=alt.X("label:N", title=None, axis=alt.Axis(labelAngle=0)),
+                    y=alt.Y("amount:Q", title=None),
+                    tooltip=[
+                        alt.Tooltip("label:N", title=trend_tooltip_title),
+                        alt.Tooltip("amount:Q", title="Amount (GBP)", format=",.2f"),
+                    ],
+                )
+                .properties(height=240)
+                .configure_axis(
+                    gridColor="#f0f1f5",
+                    tickColor="transparent",
+                    domainColor="#e8ecf4",
+                    labelColor="#8492a6",
+                    labelFontSize=10,
+                )
+                .configure_view(strokeWidth=0),
+                use_container_width=True,
+            )
 
-    st.markdown("**Expense Breakout**")
-    st.caption(
-        "All expense rows remain inside total expenses. This breakout only highlights explicit annual, one-off, and tax rows."
-    )
-    st.dataframe(
-        build_dashboard_expense_breakout_rows(dashboard_summary),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.markdown("**Latest Finance Snapshot**")
-    if not latest_finance_entries:
-        st.info("No finance snapshot rows have been saved yet.")
-        return
-
-    st.caption("Finance balances below are the latest saved snapshot and are not filtered by the selected period.")
-    st.dataframe(
-        [
-            {
-                "Currency": str(row["currency"]),
-                "Balance": format_finance_amount(row["balance"]),
-            }
-            for row in dashboard_summary.finance_currency_summary
-        ],
-        use_container_width=True,
-        hide_index=True,
+    category_rows = build_category_spending_report(
+        filtered_expenses,
+        month_rates_by_month=expense_month_rates_by_month,
     )
 
     rates_to_hkd = dict(FALLBACK_REFERENCE_RATES_TO_HKD)
@@ -4976,37 +6704,36 @@ def render_overall_dashboard_section() -> None:
         rates_to_gbp=rates_to_gbp,
         rates_to_hkd=rates_to_hkd,
     )
-    st.dataframe(
-        [
-            {
-                "Scenario": "Excluding Mum's Time D",
-                "Total (GBP)": format_finance_amount(
-                    bicurrency_totals.total_gbp_excluding_mums_time_d
-                ),
-                "Total (HKD)": format_finance_amount(
-                    bicurrency_totals.total_hkd_excluding_mums_time_d
-                ),
-            },
-            {
-                "Scenario": "Including Mum's Time D",
-                "Total (GBP)": format_finance_amount(
-                    bicurrency_totals.total_gbp_including_mums_time_d
-                ),
-                "Total (HKD)": format_finance_amount(
-                    bicurrency_totals.total_hkd_including_mums_time_d
-                ),
-            },
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
+
+    bottom_col1, bottom_col2, bottom_col3 = st.columns(3)
+    with bottom_col1:
+        render_top_categories_card(category_rows)
+    with bottom_col2:
+        render_expense_breakout_card(
+            dashboard_summary.expense_breakout,
+            total_expense_paid_gbp=dashboard_summary.expense_gbp,
+            total_expense_used_gbp=dashboard_summary.annualised_monthly_expense_gbp,
+            displayed_tax_gbp=dashboard_summary.total_tax_amount_gbp,
+            transactions=filtered_expenses,
+            month_rates_by_month=expense_month_rates_by_month,
+        )
+    with bottom_col3:
+        render_finance_snapshot_card(
+            dashboard_summary.finance_currency_summary,
+            bicurrency_totals=bicurrency_totals,
+        )
 
 
 def main() -> None:
     """Run the Streamlit expense tracker app."""
 
-    st.set_page_config(page_title="Expense Tracker", page_icon=":material/receipt_long:")
-    st.title("Expense Tracker")
+    st.set_page_config(
+        page_title="Expense Tracker",
+        page_icon=":material/receipt_long:",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    inject_app_chrome()
 
     try:
         connected = test_connection()
@@ -5017,41 +6744,63 @@ def main() -> None:
     if connected:
         st.success("Supabase connected.")
 
-    page = st.sidebar.radio(
-        "Section",
-        ("Overall Dashboard", "Expenses", "Income", "Finance Situation"),
-        index=0,
-    )
+    page, focus, active_label = render_sidebar_navigation()
+    view_key = focus or page
+    render_page_shell(view_key)
 
     if page == "Finance Situation":
-        st.caption("Current finance snapshot, separate from expense transactions and reports.")
         render_finance_situation_section()
         return
 
     if page == "Income":
-        st.caption("Gross income with tax-paid history read from expense tax-payment rows.")
         render_income_section()
         return
 
     if page == "Overall Dashboard":
-        st.caption("Combined summary across income, expenses, tax, and current balances.")
         render_overall_dashboard_section()
         return
 
-    st.caption("Expense-only V1 entry flow")
     run_recurring_expense_catch_up()
-    st.divider()
+    run_recurring_income_catch_up()
+    if focus == "Recurring":
+        render_recurring_expenses_section()
+        st.divider()
+        try:
+            latest_entries = fetch_finance_snapshot_entries()
+            incomes = fetch_income_transactions()
+        except DatabaseConnectionError as exc:
+            st.error(str(exc))
+            return
+        except DatabaseSchemaError as exc:
+            st.info(str(exc))
+            return
+        finance_account_options = get_finance_account_options(latest_entries, incomes)
+        render_recurring_income_section(finance_account_options=finance_account_options)
+        return
+    if focus == "Export":
+        render_export_section()
+        return
+    if focus == "Import":
+        render_import_section()
+        st.divider()
+        try:
+            import_incomes = fetch_income_transactions()
+            import_latest_entries = fetch_finance_snapshot_entries()
+        except DatabaseConnectionError as exc:
+            st.error(str(exc))
+            return
+        except DatabaseSchemaError as exc:
+            st.info(str(exc))
+            return
+        render_income_import_section(incomes=import_incomes, latest_entries=import_latest_entries)
+        return
+    if focus == "Reports":
+        render_reports_section()
+        return
+
     render_manual_entry_form()
     st.divider()
-    render_recurring_expenses_section()
-    st.divider()
     render_transaction_grid()
-    st.divider()
-    render_export_section()
-    st.divider()
-    render_import_section()
-    st.divider()
-    render_reports_section()
 
 
 if __name__ == "__main__":

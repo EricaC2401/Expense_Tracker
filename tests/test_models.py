@@ -10,6 +10,7 @@ from src.models import (
     DEFAULT_TRANSACTION_GROUP,
     ValidationError,
     get_next_recurring_due_date,
+    validate_exchange_record,
     validate_finance_snapshot_entry,
     validate_expense_transaction,
     validate_income_transaction,
@@ -153,17 +154,18 @@ def test_validate_expense_transaction_accepts_hkd_only_rows() -> None:
     assert transaction.amount_hkd == Decimal("120.50")
 
 
-def test_validate_expense_transaction_rejects_negative_amount() -> None:
-    with pytest.raises(ValidationError, match="amount_gbp must be zero or greater"):
-        validate_expense_transaction(
-            {
-                "transaction_date": "2026-05-02",
-                "description": "Coffee",
-                "amount_gbp": "-3.50",
-                "tax_deductable": False,
-                "payment_method": None,
-            }
-        )
+def test_validate_expense_transaction_accepts_negative_amount() -> None:
+    transaction = validate_expense_transaction(
+        {
+            "transaction_date": "2026-05-02",
+            "description": "Coffee refund",
+            "amount_gbp": "-3.50",
+            "tax_deductable": False,
+            "payment_method": None,
+        }
+    )
+
+    assert transaction.amount_gbp == Decimal("-3.50")
 
 
 def test_validate_expense_transaction_requires_one_amount() -> None:
@@ -347,6 +349,20 @@ def test_validate_recurring_expense_template_accepts_valid_data() -> None:
     assert template.is_active is True
 
 
+def test_validate_recurring_expense_template_accepts_negative_amount() -> None:
+    template = validate_recurring_expense_template(
+        {
+            "description": "Subscription refund",
+            "category": "Subscriptions",
+            "amount_gbp": "-9.99",
+            "day_of_month": 1,
+            "start_date": "2026-01-01",
+        }
+    )
+
+    assert template.amount_gbp == Decimal("-9.99")
+
+
 def test_validate_recurring_income_template_defaults_taxable_true() -> None:
     template = validate_recurring_income_template(
         {
@@ -475,10 +491,164 @@ def test_validate_finance_snapshot_entry_requires_balance() -> None:
     with pytest.raises(ValidationError, match="balance is required"):
         validate_finance_snapshot_entry(
             {
-                "snapshot_date": "",
+                "snapshot_date": "2026-06-19",
                 "institution": "Monzo",
                 "account": "Savings",
                 "currency": "GBP",
                 "balance": "",
+            }
+        )
+
+
+def test_validate_exchange_record_accepts_hkd_to_gbp_and_derives_display_rate() -> None:
+    exchange = validate_exchange_record(
+        {
+            "exchange_date": "2026-06-22",
+            "from_institution": " HSBC HK ",
+            "from_account": " HKD ",
+            "from_currency": " hkd ",
+            "from_amount": "7800.00",
+            "fee_amount": "25.00",
+            "to_institution": " Monzo ",
+            "to_account": " Current ",
+            "to_currency": " gbp ",
+            "to_amount": "765.40",
+            "notes": "  Summer transfer  ",
+        }
+    )
+
+    assert exchange.from_currency == "HKD"
+    assert exchange.to_currency == "GBP"
+    assert exchange.fee_amount == Decimal("25.00")
+    assert exchange.display_rate_base_currency == "GBP"
+    assert exchange.display_rate_quote_currency == "HKD"
+    assert exchange.display_rate_value == Decimal("7800.00") / Decimal("740.40")
+    assert exchange.notes == "Summer transfer"
+
+
+def test_validate_exchange_record_accepts_other_cross_currency_pairs() -> None:
+    exchange = validate_exchange_record(
+        {
+            "exchange_date": "2026-06-22",
+            "from_institution": "IBKR",
+            "from_account": "USD",
+            "from_currency": "USD",
+            "from_amount": "1000.00",
+            "to_institution": "HSBC HK",
+            "to_account": "HKD",
+            "to_currency": "HKD",
+            "to_amount": "7800.00",
+        }
+    )
+
+    assert exchange.display_rate_base_currency == "HKD"
+    assert exchange.display_rate_quote_currency == "USD"
+    assert exchange.display_rate_value == Decimal("1000.00") / Decimal("7800.00")
+
+
+def test_validate_exchange_record_accepts_same_currency_transfer() -> None:
+    exchange = validate_exchange_record(
+        {
+            "exchange_date": "2026-06-22",
+            "from_institution": "Monzo",
+            "from_account": "Current",
+            "from_currency": "GBP",
+            "from_amount": "100.00",
+            "to_institution": "HSBC UK",
+            "to_account": "Savings",
+            "to_currency": "GBP",
+            "to_amount": "100.00",
+        }
+    )
+
+    assert exchange.display_rate_base_currency == "GBP"
+    assert exchange.display_rate_quote_currency == "GBP"
+    assert exchange.display_rate_value == Decimal("1")
+
+
+def test_validate_exchange_record_rejects_negative_fee() -> None:
+    with pytest.raises(ValidationError, match="fee_amount must be zero or greater"):
+        validate_exchange_record(
+            {
+                "exchange_date": "2026-06-22",
+                "from_institution": "HSBC HK",
+                "from_account": "HKD",
+                "from_currency": "HKD",
+                "from_amount": "7800.00",
+                "fee_amount": "-1.00",
+                "to_institution": "Monzo",
+                "to_account": "Current",
+                "to_currency": "GBP",
+                "to_amount": "765.40",
+            }
+        )
+
+
+def test_validate_exchange_record_rejects_fee_equal_to_received_amount() -> None:
+    with pytest.raises(ValidationError, match="fee_amount must be less than to_amount"):
+        validate_exchange_record(
+            {
+                "exchange_date": "2026-06-22",
+                "from_institution": "HSBC HK",
+                "from_account": "HKD",
+                "from_currency": "HKD",
+                "from_amount": "7800.00",
+                "fee_amount": "765.40",
+                "to_institution": "Monzo",
+                "to_account": "Current",
+                "to_currency": "GBP",
+                "to_amount": "765.40",
+            }
+        )
+
+
+def test_validate_exchange_record_rejects_same_account() -> None:
+    with pytest.raises(ValidationError, match="Source and destination accounts must be different"):
+        validate_exchange_record(
+            {
+                "exchange_date": "2026-06-22",
+                "from_institution": "HSBC HK",
+                "from_account": "HKD",
+                "from_currency": "HKD",
+                "from_amount": "7800.00",
+                "to_institution": "HSBC HK",
+                "to_account": "HKD",
+                "to_currency": "HKD",
+                "to_amount": "765.40",
+            }
+        )
+
+
+def test_validate_exchange_record_allows_same_currency_for_different_accounts() -> None:
+    exchange = validate_exchange_record(
+        {
+            "exchange_date": "2026-06-22",
+            "from_institution": "HSBC HK",
+            "from_account": "HKD",
+            "from_currency": "HKD",
+            "from_amount": "7800.00",
+            "to_institution": "Monzo",
+            "to_account": "Travel",
+            "to_currency": "HKD",
+            "to_amount": "7790.00",
+        }
+    )
+
+    assert exchange.display_rate_value == Decimal("1")
+
+
+def test_validate_exchange_record_rejects_non_positive_amounts() -> None:
+    with pytest.raises(ValidationError, match="from_amount must be greater than zero"):
+        validate_exchange_record(
+            {
+                "exchange_date": "2026-06-22",
+                "from_institution": "HSBC HK",
+                "from_account": "HKD",
+                "from_currency": "HKD",
+                "from_amount": "0",
+                "to_institution": "Monzo",
+                "to_account": "Current",
+                "to_currency": "GBP",
+                "to_amount": "765.40",
             }
         )

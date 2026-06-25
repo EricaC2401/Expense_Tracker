@@ -57,19 +57,16 @@ def test_clean_import_csv_rejects_invalid_headers() -> None:
         raise AssertionError("Expected CSVImportError for invalid headers")
 
 
-def test_clean_import_csv_rejects_invalid_row_values() -> None:
+def test_clean_import_csv_accepts_negative_expense_rows() -> None:
     csv_bytes = (
         b"transaction_date,description,category,tax_deductable,amount_gbp,amount_hkd,payment_method,notes,group\n"
         b"2026-05-01,VOXI,Subscription,false,-10.00,,Monzo,,Living\n"
     )
 
-    try:
-        clean_import_csv(csv_bytes)
-    except CSVImportError as exc:
-        assert "Row 2" in str(exc)
-        assert "amount_gbp must be zero or greater" in str(exc)
-    else:  # pragma: no cover
-        raise AssertionError("Expected CSVImportError for invalid row")
+    transactions = clean_import_csv(csv_bytes)
+
+    assert len(transactions) == 1
+    assert transactions[0].amount_gbp == Decimal("-10.00")
 
 
 def test_build_import_preview_rows_returns_first_five_rows() -> None:

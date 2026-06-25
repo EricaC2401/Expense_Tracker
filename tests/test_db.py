@@ -7,6 +7,7 @@ import pytest
 
 from src import db
 from src.models import (
+    ExchangeRecord,
     ExpenseTransaction,
     FinanceSnapshotEntry,
     IncomeTransaction,
@@ -213,6 +214,47 @@ def make_valid_finance_snapshot_entry() -> FinanceSnapshotEntry:
         balance=Decimal("207.00"),
         account_type="Savings",
         notes="Main savings pot",
+    )
+
+
+def make_exchange_row(exchange_id: int = 1) -> dict[str, object]:
+    return {
+        "id": exchange_id,
+        "exchange_date": date(2026, 6, 22),
+        "from_institution": "HSBC HK",
+        "from_account": "HKD",
+        "from_currency": "HKD",
+        "from_amount": Decimal("7800.00"),
+        "fee_amount": Decimal("25.00"),
+        "to_institution": "Monzo",
+        "to_account": "Current",
+        "to_currency": "GBP",
+        "to_amount": Decimal("765.40"),
+        "display_rate_value": Decimal("10.53484599"),
+        "display_rate_base_currency": "GBP",
+        "display_rate_quote_currency": "HKD",
+        "notes": "Summer transfer",
+        "created_at": datetime(2026, 6, 22, 9, 0, 0),
+        "updated_at": datetime(2026, 6, 22, 9, 0, 0),
+    }
+
+
+def make_valid_exchange() -> ExchangeRecord:
+    return ExchangeRecord(
+        exchange_date=date(2026, 6, 22),
+        from_institution="HSBC HK",
+        from_account="HKD",
+        from_currency="HKD",
+        from_amount=Decimal("7800.00"),
+        fee_amount=Decimal("25.00"),
+        to_institution="Monzo",
+        to_account="Current",
+        to_currency="GBP",
+        to_amount=Decimal("765.40"),
+        display_rate_value=Decimal("10.53484599"),
+        display_rate_base_currency="GBP",
+        display_rate_quote_currency="HKD",
+        notes="Summer transfer",
     )
 
 
@@ -771,6 +813,129 @@ def test_delete_finance_snapshot_entry_returns_true_when_row_removed(
     assert fake_connection.commit_calls == 1
 
 
+def test_fetch_exchange_records_returns_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_connection = FakeConnection(rows=[make_exchange_row(exchange_id=2)])
+
+    monkeypatch.setattr(db, "ensure_connection", lambda: fake_connection)
+
+    rows = db.fetch_exchange_records()
+
+    assert len(rows) == 1
+    assert rows[0].id == 2
+    assert rows[0].from_currency == "HKD"
+    assert "from public.exchange_records" in fake_connection.cursors[0].executed_sql[0]
+
+
+def test_insert_exchange_record_with_finance_link_runs_all_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_connection = FakeConnection(
+        row=[
+            make_exchange_row(exchange_id=3),
+            make_finance_snapshot_row(entry_id=21),
+            make_finance_snapshot_row(entry_id=22),
+            make_finance_snapshot_row(entry_id=23),
+            make_finance_snapshot_row(entry_id=24),
+        ]
+    )
+    exchange = make_valid_exchange()
+
+    monkeypatch.setattr(db, "ensure_connection", lambda: fake_connection)
+
+    stored = db.insert_exchange_record_with_finance_link(exchange)
+
+    assert stored.id == 3
+    assert fake_connection.commit_calls == 1
+    assert "insert into public.exchange_records" in fake_connection.cursors[0].executed_sql[0]
+    assert "from public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[1]
+    assert "insert into public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[2]
+    assert "from public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[3]
+    assert "insert into public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[4]
+    assert fake_connection.cursors[0].executed_params[2][7] == "Exchange"
+    assert fake_connection.cursors[0].executed_params[4][7] == "Exchange"
+    assert fake_connection.cursors[0].executed_params[2][4] == Decimal("-7593.00")
+
+
+def test_delete_exchange_record_with_finance_link_reverses_and_deletes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_connection = FakeConnection(
+        row=[
+            make_exchange_row(exchange_id=4),
+            make_finance_snapshot_row(entry_id=31),
+            make_finance_snapshot_row(entry_id=32),
+            make_finance_snapshot_row(entry_id=33),
+            make_finance_snapshot_row(entry_id=34),
+        ],
+        rowcount=1,
+    )
+
+    monkeypatch.setattr(db, "ensure_connection", lambda: fake_connection)
+
+    deleted = db.delete_exchange_record_with_finance_link(4)
+
+    assert deleted is True
+    assert fake_connection.commit_calls == 1
+    assert "from public.exchange_records" in fake_connection.cursors[0].executed_sql[0]
+    assert "from public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[1]
+    assert "insert into public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[2]
+    assert "from public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[3]
+    assert "insert into public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[4]
+    assert "delete from public.exchange_records" in fake_connection.cursors[0].executed_sql[5]
+
+
+def test_insert_exchange_record_with_finance_link_tags_same_currency_transfer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_connection = FakeConnection(
+        row=[
+            {
+                **make_exchange_row(exchange_id=5),
+                "from_institution": "Monzo",
+                "from_account": "Current",
+                "from_currency": "GBP",
+                "from_amount": Decimal("100.00"),
+                "fee_amount": Decimal("2.50"),
+                "to_institution": "HSBC UK",
+                "to_account": "Savings",
+                "to_currency": "GBP",
+                "to_amount": Decimal("100.00"),
+                "display_rate_value": Decimal("1"),
+                "display_rate_base_currency": "GBP",
+                "display_rate_quote_currency": "GBP",
+            },
+            make_finance_snapshot_row(entry_id=41),
+            make_finance_snapshot_row(entry_id=42),
+            make_finance_snapshot_row(entry_id=43),
+            make_finance_snapshot_row(entry_id=44),
+        ]
+    )
+    exchange = ExchangeRecord(
+        exchange_date=date(2026, 6, 22),
+        from_institution="Monzo",
+        from_account="Current",
+        from_currency="GBP",
+        from_amount=Decimal("100.00"),
+        fee_amount=Decimal("2.50"),
+        to_institution="HSBC UK",
+        to_account="Savings",
+        to_currency="GBP",
+        to_amount=Decimal("100.00"),
+        display_rate_value=Decimal("1"),
+        display_rate_base_currency="GBP",
+        display_rate_quote_currency="GBP",
+        notes="Move to savings",
+    )
+
+    monkeypatch.setattr(db, "ensure_connection", lambda: fake_connection)
+
+    db.insert_exchange_record_with_finance_link(exchange)
+
+    assert fake_connection.cursors[0].executed_params[2][7] == "Transfer"
+    assert fake_connection.cursors[0].executed_params[4][7] == "Transfer"
+    assert fake_connection.cursors[0].executed_params[2][4] == Decimal("107.00")
+
+
 def test_insert_transaction_with_finance_link_runs_both_queries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -798,7 +963,7 @@ def test_insert_transaction_with_finance_link_runs_both_queries(
     assert "insert into public.transactions" in fake_connection.cursors[0].executed_sql[0]
     assert "from public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[1]
     assert "insert into public.finance_snapshot_entries" in fake_connection.cursors[0].executed_sql[2]
-    assert fake_connection.cursors[0].executed_params[2][0] == date(2026, 5, 2)
+    assert fake_connection.cursors[0].executed_params[2][0] == date.today()
 
 
 def test_update_transaction_with_finance_link_reverses_and_reapplies(

@@ -1,13 +1,13 @@
-transaction_date,description,category,tax_deductable,amount_gbp,expense_hkd,notes,cash
-2026-05-01,VOXI,Subscription,false,10.00,,,false
-2026-05-01,ChatGPT,Subscription,true,17.82,,,false
-2026-05-01,RAC,"Car Related",false,2.00,,,false
-2026-05-01,Rent,Housing,true,495.00,,,false
-2026-05-02,"Veg, Pork, Bread, Milk, Prawn",Food,false,16.80,,,false
-2026-05-02,"Veg, Fruit",Food,false,3.89,,,false
-2026-05-02,Coconut Drink,Drink,false,1.75,,,false
-2026-05-02,Kitchen Towel,"C Groceries",false,3.00,,,false
-2026-05-02,"Beef, Burger, Veg, Fruit",Food,false,13.15,,,false
-2026-05-03,"Birthday Cake for LH",LH,false,37.00,,,false
-2026-05-05,"Toothbrush for Tina",Gift,false,58.00,,,false
-2026-05-05,Toothbrush,LH,false,121.90,,,false
+transaction_date,description,category,tax_deductable,amount_gbp,amount_hkd,payment_method,notes,group
+2026-05-01,VOXI,Subscription,false,10.00,,Monzo,,Living
+2026-05-01,ChatGPT,Subscription,true,17.82,,Monzo,,Living
+2026-05-01,RAC,"Car Related",false,2.00,,Monzo,,Living
+2026-05-01,Rent,Housing,true,495.00,,Monzo,,Living
+2026-05-02,"Veg, Pork, Bread, Milk, Prawn",Food,false,16.80,,Monzo,,Living
+2026-05-02,"Veg, Fruit",Food,false,3.89,,Monzo,,Living
+2026-05-02,Coconut Drink,Drink,false,1.75,,Monzo,,Living
+2026-05-02,Kitchen Towel,"C Groceries",false,3.00,,Monzo,,Living
+2026-05-02,"Beef, Burger, Veg, Fruit",Food,false,13.15,,Monzo,,Living
+2026-05-03,"Birthday Cake for LH",LH,false,37.00,,Monzo,,Living
+2026-05-05,"Toothbrush for Tina",Gift,false,58.00,,Monzo,,Living
+2026-05-05,Toothbrush,LH,false,121.90,,Monzo,,Living
