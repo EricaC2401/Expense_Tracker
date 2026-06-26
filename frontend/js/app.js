@@ -231,68 +231,61 @@ function getAllKnownGroups() {
   return [...groups].sort((a, b) => a.localeCompare(b));
 }
 
+const PINNED_CATEGORIES = {
+  'Living': ['Food', 'Snacks', 'Drink', 'Groceries'],
+};
+
 function getCategoryEntriesForGroup(groupName) {
   const normalizedGroup = normalizeText(groupName);
-  const groupedEntries = categoryCatalog
-    .filter(entry => normalizeText(entry.group_name) === normalizedGroup && entry.is_active !== false)
-    .sort((left, right) => {
-      if ((right.usage_count || 0) !== (left.usage_count || 0)) {
-        return (right.usage_count || 0) - (left.usage_count || 0);
-      }
-      return left.category.localeCompare(right.category);
-    });
+  const entries = categoryCatalog
+    .filter(entry => normalizeText(entry.group_name) === normalizedGroup && entry.is_active !== false);
 
-  if (groupedEntries.length) {
-    return groupedEntries;
+  const pinned = PINNED_CATEGORIES[groupName] || [];
+  if (pinned.length) {
+    const pinnedSet = new Set(pinned.map(c => c.toLowerCase()));
+    const top = pinned
+      .map(name => entries.find(e => e.category.toLowerCase() === name.toLowerCase()))
+      .filter(Boolean);
+    const rest = entries
+      .filter(e => !pinnedSet.has(e.category.toLowerCase()))
+      .sort((a, b) => a.category.localeCompare(b.category));
+    return { top, others: rest, all: [...top, ...rest] };
   }
 
-  return categoryCatalog
-    .filter(entry => entry.is_active !== false)
-    .sort((left, right) => {
-      if ((right.usage_count || 0) !== (left.usage_count || 0)) {
-        return (right.usage_count || 0) - (left.usage_count || 0);
-      }
-      return left.category.localeCompare(right.category);
-    });
+  const byUsageDesc = entries.slice().sort((a, b) => (b.usage_count || 0) - (a.usage_count || 0));
+  const top5 = byUsageDesc.slice(0, 5);
+  const rest = byUsageDesc.slice(5).sort((a, b) => a.category.localeCompare(b.category));
+
+  return { top: top5, others: rest, all: [...top5, ...rest] };
 }
 
 function setCategoryManagerAvailability(isAvailable, message = '') {
   categoryManagerAvailable = isAvailable;
-  const toggle = document.getElementById('category-manager-toggle');
-  const panel = document.getElementById('category-manager-panel');
-  const controls = [
-    document.getElementById('category-manage-group'),
-    document.getElementById('category-manage-select'),
-    document.getElementById('category-manage-name'),
-  ];
-
-  if (toggle) {
-    toggle.disabled = !isAvailable;
-    toggle.title = isAvailable ? '' : message;
-  }
-  if (panel && !isAvailable) {
-    panel.hidden = true;
-  }
-  controls.forEach(control => {
-    if (control) control.disabled = !isAvailable;
-  });
-  setCategoryManagerStatus(message, message ? 'error' : '');
 }
 
-function buildFallbackCategoryCatalog(metadata = null) {
-  const categories = metadata?.categories || [];
-  return categories.map((category, index) => ({
-    id: -(index + 1),
-    category,
-    group_name: '',
-    usage_count: 0,
-    is_active: true,
-  }));
+async function buildFallbackCategoryCatalog() {
+  try {
+    const expenses = await apiGet('/expenses');
+    const counts = {};
+    for (const exp of expenses) {
+      const cat = (exp.category || '').trim();
+      const grp = (exp.group || '').trim();
+      if (!cat) continue;
+      const key = `${grp}\t${cat}`;
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    let id = -1;
+    return Object.entries(counts).map(([key, count]) => {
+      const [group_name, category] = key.split('\t');
+      return { id: id--, category, group_name, usage_count: count, is_active: true };
+    });
+  } catch {
+    return [];
+  }
 }
 
 function populateExpenseGroupOptions() {
   const formGroupSelect = document.getElementById('exp-group');
-  const manageGroupSelect = document.getElementById('category-manage-group');
   const filterGroupSelect = document.getElementById('expense-group-filter');
   const groups = getAllKnownGroups();
 
@@ -300,12 +293,6 @@ function populateExpenseGroupOptions() {
     const selectedGroup = formGroupSelect.value || 'Living';
     formGroupSelect.innerHTML = groups.map(group => `<option>${group}</option>`).join('');
     formGroupSelect.value = groups.includes(selectedGroup) ? selectedGroup : (groups[0] || 'Living');
-  }
-
-  if (manageGroupSelect) {
-    const selectedGroup = manageGroupSelect.value || (formGroupSelect ? formGroupSelect.value : 'Living');
-    manageGroupSelect.innerHTML = groups.map(group => `<option>${group}</option>`).join('');
-    manageGroupSelect.value = groups.includes(selectedGroup) ? selectedGroup : (groups[0] || 'Living');
   }
 
   if (filterGroupSelect) {
@@ -316,105 +303,148 @@ function populateExpenseGroupOptions() {
 }
 
 function populateExpenseCategoryOptions(preserveValue = true) {
-  const categorySelect = document.getElementById('exp-category');
+  const hiddenInput = document.getElementById('exp-category');
+  const visibleInput = document.getElementById('exp-category-input');
+  const dropdown = document.getElementById('exp-category-dropdown');
   const groupSelect = document.getElementById('exp-group');
-  if (!categorySelect || !groupSelect) return;
+  if (!hiddenInput || !visibleInput || !dropdown || !groupSelect) return;
 
-  const currentValue = categorySelect.value;
-  const entries = getCategoryEntriesForGroup(groupSelect.value);
-  const values = entries.map(entry => entry.category);
-  categorySelect.innerHTML = values.map(category => `<option>${category}</option>`).join('');
+  const currentValue = hiddenInput.value;
+  const { top, others, all } = getCategoryEntriesForGroup(groupSelect.value);
 
-  if (preserveValue && currentValue) {
-    categorySelect.value = values.includes(currentValue) ? currentValue : (values[0] || '');
-    return;
-  }
+  _buildCategoryDropdown(dropdown, top, others, hiddenInput, visibleInput);
 
-  categorySelect.value = values[0] || '';
-}
-
-function populateCategoryManagerOptions() {
-  const manageGroupSelect = document.getElementById('category-manage-group');
-  const manageSelect = document.getElementById('category-manage-select');
-  const manageNameInput = document.getElementById('category-manage-name');
-  if (!manageGroupSelect || !manageSelect || !manageNameInput) return;
-
-  const entries = getCategoryEntriesForGroup(manageGroupSelect.value);
-  manageSelect.innerHTML = entries
-    .map(entry => `<option value="${entry.id}">${entry.category}${entry.usage_count ? ` (${entry.usage_count})` : ''}</option>`)
-    .join('');
-
-  if (entries.length) {
-    manageSelect.value = String(entries[0].id);
-    manageNameInput.value = entries[0].category;
+  if (preserveValue && currentValue && all.some(e => e.category === currentValue)) {
+    hiddenInput.value = currentValue;
+    visibleInput.value = currentValue;
+  } else if (all.length) {
+    hiddenInput.value = all[0].category;
+    visibleInput.value = all[0].category;
   } else {
-    manageNameInput.value = '';
+    hiddenInput.value = '';
+    visibleInput.value = '';
   }
-
-  renderCategoryManagerPreview();
 }
 
-function renderCategoryManagerPreview() {
-  const manageGroupSelect = document.getElementById('category-manage-group');
-  const manageSelect = document.getElementById('category-manage-select');
-  const preview = document.getElementById('category-manage-preview');
-  const count = document.getElementById('category-manage-count');
-  if (!manageGroupSelect || !manageSelect || !preview || !count) return;
+function _buildCategoryDropdown(dropdown, top, others, hiddenInput, visibleInput, filter = '') {
+  const needle = filter.trim().toLowerCase();
+  const filterFn = entry => !needle || entry.category.toLowerCase().includes(needle);
+  const filteredTop = top.filter(filterFn);
+  const filteredOthers = others.filter(filterFn);
 
-  const entries = getCategoryEntriesForGroup(manageGroupSelect.value);
-  const activeId = String(manageSelect.value || '');
-  count.textContent = `${entries.length} tag${entries.length === 1 ? '' : 's'}`;
+  let html = `<div class="searchable-select-search" style="position:relative">
+    <i class="ti ti-search"></i>
+    <input type="text" placeholder="Search categories…" id="exp-category-search" value="${filter.replace(/"/g, '&quot;')}">
+  </div>`;
 
-  if (!entries.length) {
-    preview.innerHTML = '<div class="category-manager-preview-empty">No categories in this group yet.</div>';
-    return;
+  if (!filteredTop.length && !filteredOthers.length) {
+    html += `<div class="searchable-select-empty">No categories found</div>`;
+  } else {
+    if (filteredTop.length) {
+      if (top.length + others.length > 5) {
+        html += `<div class="searchable-select-divider">Most used</div>`;
+      }
+      filteredTop.forEach(entry => {
+        const sel = hiddenInput.value === entry.category ? ' selected' : '';
+        html += `<div class="searchable-select-option${sel}" data-value="${entry.category}">${entry.category}</div>`;
+      });
+    }
+    if (filteredOthers.length) {
+      if (filteredTop.length && top.length + others.length > 5) {
+        html += `<div class="searchable-select-divider">Others (A–Z)</div>`;
+      }
+      filteredOthers.forEach(entry => {
+        const sel = hiddenInput.value === entry.category ? ' selected' : '';
+        html += `<div class="searchable-select-option${sel}" data-value="${entry.category}">${entry.category}</div>`;
+      });
+    }
   }
 
-  preview.innerHTML = entries
-    .map(entry => {
-      const isActive = String(entry.id) === activeId;
-      return `
-        <button
-          class="category-manager-preview-item${isActive ? ' active' : ''}"
-          type="button"
-          onclick="selectCategoryManagerEntry(${entry.id})"
-        >
-          ${categoryChip(entry.category, entry.group_name)}
-          <span class="category-manager-preview-item-count">${entry.usage_count || 0}</span>
-        </button>
-      `;
-    })
-    .join('');
-}
+  dropdown.innerHTML = html;
 
-function selectCategoryManagerEntry(categoryId) {
-  const manageSelect = document.getElementById('category-manage-select');
-  const manageNameInput = document.getElementById('category-manage-name');
-  if (!manageSelect || !manageNameInput) return;
+  dropdown.querySelectorAll('.searchable-select-option').forEach(opt => {
+    opt.addEventListener('mousedown', e => {
+      e.preventDefault();
+      hiddenInput.value = opt.dataset.value;
+      visibleInput.value = opt.dataset.value;
+      dropdown.classList.remove('open');
+      visibleInput.blur();
+    });
+  });
 
-  manageSelect.value = String(categoryId);
-  const selectedOption = manageSelect.selectedOptions[0];
-  manageNameInput.value = selectedOption
-    ? selectedOption.textContent.replace(/\s+\(\d+\)$/, '')
-    : '';
-  renderCategoryManagerPreview();
-}
-
-function toggleCategoryManager(forceState) {
-  const panel = document.getElementById('category-manager-panel');
-  const toggle = document.getElementById('category-manager-toggle');
-  if (!panel || !toggle) return;
-  if (!categoryManagerAvailable) return;
-
-  const shouldOpen = typeof forceState === 'boolean' ? forceState : panel.hidden;
-  panel.hidden = !shouldOpen;
-  toggle.innerHTML = shouldOpen
-    ? '<i class="ti ti-tags-off"></i>Hide categories'
-    : '<i class="ti ti-tags"></i>Manage categories';
-
-  if (shouldOpen) {
-    renderCategoryManagerPreview();
+  const searchBox = dropdown.querySelector('#exp-category-search');
+  if (searchBox) {
+    searchBox.addEventListener('input', () => {
+      const groupSelect = document.getElementById('exp-group');
+      const { top: t, others: o } = getCategoryEntriesForGroup(groupSelect.value);
+      _buildCategoryDropdown(dropdown, t, o, hiddenInput, visibleInput, searchBox.value);
+      const newSearch = dropdown.querySelector('#exp-category-search');
+      if (newSearch) {
+        newSearch.focus();
+        newSearch.selectionStart = newSearch.selectionEnd = newSearch.value.length;
+      }
+    });
+    searchBox.addEventListener('mousedown', e => e.stopPropagation());
   }
+}
+
+function openCategoryManager() {
+  const overlay = document.getElementById('catmgr-overlay');
+  if (!overlay) return;
+  overlay.classList.add('open');
+  renderCategoryManagerBody();
+}
+
+function closeCategoryManager() {
+  const overlay = document.getElementById('catmgr-overlay');
+  if (overlay) overlay.classList.remove('open');
+  setCategoryManagerStatus();
+}
+
+function renderCategoryManagerBody() {
+  const body = document.getElementById('catmgr-body');
+  if (!body) return;
+
+  const groups = getAllKnownGroups();
+  const editable = categoryManagerAvailable;
+  let html = '';
+
+  for (const group of groups) {
+    const { all: entries } = getCategoryEntriesForGroup(group);
+    html += `<div class="catmgr-group">`;
+    html += `<div class="catmgr-group-header">
+      <div class="catmgr-group-name">${group}</div>
+      ${editable ? `<button class="catmgr-add-btn" type="button" onclick="addCategoryRow('${group.replace(/'/g, "\\'")}')">+ Add tag</button>` : ''}
+    </div>`;
+
+    if (!entries.length) {
+      html += `<div class="catmgr-empty">No categories yet.</div>`;
+    } else {
+      for (const entry of entries) {
+        const esc = entry.category.replace(/"/g, '&quot;');
+        const escSq = entry.category.replace(/'/g, "\\'");
+        html += `<div class="catmgr-row" data-id="${entry.id}" data-original="${esc}">
+          <input type="text" value="${esc}" id="catmgr-name-${entry.id}" ${editable ? '' : 'readonly'}>
+          <div class="catmgr-row-preview">${categoryChip(entry.category, entry.group_name)}</div>
+          <div class="catmgr-row-count">${entry.usage_count || 0} used</div>
+          ${editable ? `<div class="catmgr-row-actions">
+            <button class="catmgr-row-btn save" type="button" title="Save rename" onclick="renameCategoryRow(${entry.id})"><i class="ti ti-check"></i></button>
+            <button class="catmgr-row-btn danger" type="button" title="Delete" onclick="deleteCategoryRow(${entry.id}, '${escSq}')"><i class="ti ti-trash"></i></button>
+          </div>` : ''}
+        </div>`;
+      }
+    }
+
+    html += `</div>`;
+  }
+
+  if (!editable) {
+    html += `<div style="margin-top:14px;padding:10px 14px;background:#f0f4ff;border:1px solid #c7d2fe;border-radius:8px;font-size:12px;color:#3730a3">
+      Editing is unavailable until the category catalog migration is applied in Supabase.
+    </div>`;
+  }
+
+  body.innerHTML = html;
 }
 
 async function loadCategoryCatalog(forceRefresh = false) {
@@ -431,7 +461,7 @@ async function loadCategoryCatalog(forceRefresh = false) {
     }
     setCategoryManagerAvailability(true);
   } catch (error) {
-    categoryCatalog = buildFallbackCategoryCatalog(expenseMetadata);
+    categoryCatalog = await buildFallbackCategoryCatalog();
     categoryGroups = expenseMetadata?.groups || [];
     if (typeof setCategoryColorsFromEntries === 'function') {
       setCategoryColorsFromEntries(categoryCatalog);
@@ -443,7 +473,6 @@ async function loadCategoryCatalog(forceRefresh = false) {
   }
   populateExpenseGroupOptions();
   populateExpenseCategoryOptions(false);
-  populateCategoryManagerOptions();
 }
 
 function buildExpenseMonthOptions(latestExpenseDate) {
@@ -1247,6 +1276,7 @@ async function editExpense(expenseId) {
   document.getElementById('exp-group').value = transaction.group || 'Living';
   populateExpenseCategoryOptions(false);
   document.getElementById('exp-category').value = transaction.category || '';
+  document.getElementById('exp-category-input').value = transaction.category || '';
   document.getElementById('exp-gbp').value = transaction.amount_gbp || '';
   document.getElementById('exp-hkd').value = transaction.amount_hkd || '';
   document.getElementById('exp-payment').value = transaction.payment_method || '';
@@ -1282,70 +1312,82 @@ function setCategoryManagerStatus(message = '', type = '') {
   statusEl.className = type ? `form-status ${type}` : 'form-status';
 }
 
-async function createCategory() {
-  if (!categoryManagerAvailable) return;
-  const groupName = normalizeText(document.getElementById('category-manage-group').value);
-  const category = normalizeText(document.getElementById('category-manage-name').value);
-  if (!groupName || !category) {
-    setCategoryManagerStatus('Group and category name are required.', 'error');
-    return;
-  }
+function addCategoryRow(groupName) {
+  const groupEl = [...document.querySelectorAll('.catmgr-group')].find(el =>
+    el.querySelector('.catmgr-group-name')?.textContent === groupName
+  );
+  if (!groupEl) return;
+
+  const emptyMsg = groupEl.querySelector('.catmgr-empty');
+  if (emptyMsg) emptyMsg.remove();
+
+  const row = document.createElement('div');
+  row.className = 'catmgr-row new-row';
+  row.innerHTML = `
+    <input type="text" placeholder="New category name…" id="catmgr-new-input" autofocus>
+    <div class="catmgr-row-actions">
+      <button class="catmgr-row-btn save" type="button" title="Save" onclick="saveNewCategory('${groupName.replace(/'/g, "\\'")}', this)"><i class="ti ti-check"></i></button>
+      <button class="catmgr-row-btn danger" type="button" title="Cancel" onclick="this.closest('.catmgr-row').remove()"><i class="ti ti-x"></i></button>
+    </div>`;
+  groupEl.appendChild(row);
+
+  const input = row.querySelector('input');
+  input.focus();
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveNewCategory(groupName, row.querySelector('.save'));
+    if (e.key === 'Escape') row.remove();
+  });
+}
+
+async function saveNewCategory(groupName, btnEl) {
+  const row = btnEl.closest('.catmgr-row');
+  const input = row.querySelector('input');
+  const category = normalizeText(input.value);
+  if (!category) { input.focus(); return; }
 
   try {
     await apiPost('/categories', { group_name: groupName, category });
     await loadCategoryCatalog(true);
-    setCategoryManagerStatus(`Added ${category} to ${groupName}.`, 'success');
-    document.getElementById('exp-group').value = groupName;
     populateExpenseCategoryOptions(false);
-    toggleCategoryManager(true);
+    renderCategoryManagerBody();
+    setCategoryManagerStatus(`Added "${category}" to ${groupName}.`, 'success');
   } catch (error) {
-    setCategoryManagerStatus(`Could not add category: ${error.message}`, 'error');
+    setCategoryManagerStatus(`Could not add: ${error.message}`, 'error');
   }
 }
 
-async function renameCategory() {
-  if (!categoryManagerAvailable) return;
-  const categoryId = document.getElementById('category-manage-select').value;
-  const category = normalizeText(document.getElementById('category-manage-name').value);
-  if (!categoryId || !category) {
-    setCategoryManagerStatus('Choose a category and enter the new name.', 'error');
-    return;
-  }
+async function renameCategoryRow(categoryId) {
+  const input = document.getElementById(`catmgr-name-${categoryId}`);
+  const row = input?.closest('.catmgr-row');
+  if (!input || !row) return;
+
+  const newName = normalizeText(input.value);
+  const original = row.dataset.original;
+  if (!newName) { input.focus(); return; }
+  if (newName === original) { setCategoryManagerStatus('No changes.', ''); return; }
 
   try {
-    await apiPut(`/categories/${categoryId}`, { category });
+    await apiPut(`/categories/${categoryId}`, { category: newName });
     await loadCategoryCatalog(true);
-    expenseMetadata = null;
-    await loadExpensesPage(true);
-    setCategoryManagerStatus(`Renamed category to ${category}.`, 'success');
     populateExpenseCategoryOptions(false);
-    toggleCategoryManager(true);
+    renderCategoryManagerBody();
+    setCategoryManagerStatus(`Renamed "${original}" → "${newName}".`, 'success');
   } catch (error) {
-    setCategoryManagerStatus(`Could not rename category: ${error.message}`, 'error');
+    setCategoryManagerStatus(`Could not rename: ${error.message}`, 'error');
   }
 }
 
-async function deleteCategory() {
-  if (!categoryManagerAvailable) return;
-  const manageSelect = document.getElementById('category-manage-select');
-  const selectedText = manageSelect?.selectedOptions?.[0]?.textContent || 'this category';
-  const categoryId = manageSelect?.value;
-  if (!categoryId) {
-    setCategoryManagerStatus('Choose a category to delete.', 'error');
-    return;
-  }
-
-  const confirmed = window.confirm(`Delete ${selectedText} from the category list? Existing expenses will keep their saved category text.`);
-  if (!confirmed) return;
+async function deleteCategoryRow(categoryId, categoryName) {
+  if (!window.confirm(`Delete "${categoryName}"? Existing expenses keep their saved category text.`)) return;
 
   try {
     await apiDelete(`/categories/${categoryId}`);
     await loadCategoryCatalog(true);
-    setCategoryManagerStatus(`Deleted ${selectedText}.`, 'success');
     populateExpenseCategoryOptions(false);
-    toggleCategoryManager(true);
+    renderCategoryManagerBody();
+    setCategoryManagerStatus(`Deleted "${categoryName}".`, 'success');
   } catch (error) {
-    setCategoryManagerStatus(`Could not delete category: ${error.message}`, 'error');
+    setCategoryManagerStatus(`Could not delete: ${error.message}`, 'error');
   }
 }
 
@@ -1722,6 +1764,10 @@ function loadPageData(page) {
   }
   if (page === 'tax') {
     loadTaxPage();
+    return;
+  }
+  if (page === 'recurring') {
+    loadRecurringPage();
   }
 }
 
@@ -1751,6 +1797,339 @@ function syncCustomPeriodFromInputs() {
 }
 
 // Initialize
+// ── Recurring page ──
+
+const CATEGORY_ICONS = {
+  'Housing': { icon: 'ti-home-2', bg: '#FEF0E6', color: '#C4590A' },
+  'Rent': { icon: 'ti-home-2', bg: '#FEF0E6', color: '#C4590A' },
+  'Subscriptions': { icon: 'ti-device-tv', bg: '#EDE9FE', color: '#6D28D9' },
+  'Bills': { icon: 'ti-bolt', bg: '#FEF9C3', color: '#A16207' },
+  'Groceries': { icon: 'ti-shopping-cart', bg: '#ECFDF5', color: '#047857' },
+  'Transport': { icon: 'ti-car', bg: '#DBEAFE', color: '#1D4ED8' },
+  'Food': { icon: 'ti-tools-kitchen-2', bg: '#FEF0E6', color: '#C4590A' },
+  'Insurance': { icon: 'ti-shield-check', bg: '#FEF0E6', color: '#C4590A' },
+  'Car Related: Annual': { icon: 'ti-car', bg: '#FEF0E6', color: '#C4590A' },
+  'Car Related: Fuel': { icon: 'ti-gas-station', bg: '#DBEAFE', color: '#1D4ED8' },
+  'Healthcare': { icon: 'ti-heart-plus', bg: '#FCE7F3', color: '#BE185D' },
+};
+const DEFAULT_ICON = { icon: 'ti-circle', bg: '#F1F5F9', color: '#64748B' };
+
+function getRecurringIcon(category) {
+  return CATEGORY_ICONS[category] || DEFAULT_ICON;
+}
+
+function ordinalDay(n) {
+  const s = ['th','st','nd','rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+let recurringExpenses = [];
+let recurringIncomes = [];
+let editingRecExpenseId = null;
+let editingRecIncomeId = null;
+
+async function loadRecurringPage() {
+  try {
+    if (!expenseMetadata) {
+      try { expenseMetadata = await apiGet('/expenses/meta'); } catch {}
+    }
+    await loadCategoryCatalog();
+    const [expenses, incomes] = await Promise.all([
+      apiGet('/recurring/expenses'),
+      apiGet('/recurring/income'),
+    ]);
+    recurringExpenses = expenses;
+    recurringIncomes = incomes;
+    renderRecurringMetrics();
+    renderRecurringExpenseGrid();
+    renderRecurringIncomeGrid();
+    populateRecurringCategorySelect();
+  } catch (error) {
+    console.error('Failed to load recurring page:', error);
+  }
+}
+
+function renderRecurringMetrics() {
+  const activeExpenses = recurringExpenses.filter(e => e.is_active);
+  const activeIncomes = recurringIncomes.filter(i => i.is_active);
+  const totalExpense = activeExpenses.reduce((s, e) => s + parseFloat(e.amount_gbp || 0), 0);
+  const totalIncome = activeIncomes.reduce((s, i) => s + parseFloat(i.gross_amount || i.amount_gbp || 0), 0);
+
+  document.getElementById('mc-rec-expense').textContent = fmtGBP(totalExpense);
+  document.getElementById('mc-rec-income').textContent =
+    activeIncomes.some(i => i.currency && i.currency !== 'GBP')
+      ? fmtAmt(totalIncome, activeIncomes[0]?.currency || 'GBP')
+      : fmtGBP(totalIncome);
+  document.getElementById('mc-rec-count').textContent = activeExpenses.length + activeIncomes.length;
+  document.getElementById('mc-rec-count-sub').textContent =
+    `${recurringExpenses.length} expense${recurringExpenses.length !== 1 ? 's' : ''} · ${recurringIncomes.length} income`;
+}
+
+function renderRecurringExpenseGrid() {
+  const grid = document.getElementById('rec-expense-grid');
+  if (!grid) return;
+
+  if (!recurringExpenses.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;font-size:12px;color:#8492a6">No recurring expenses yet.</div>';
+    return;
+  }
+
+  grid.innerHTML = recurringExpenses.map(e => {
+    const ic = getRecurringIcon(e.category);
+    const statusDot = e.is_active ? '<span class="dot-green"></span> Active' : '<span class="dot-amber"></span> Paused';
+    return `<div class="rec-card" data-id="${e.id}">
+      <div class="rec-icon" style="background:${ic.bg}"><i class="ti ${ic.icon}" style="color:${ic.color}"></i></div>
+      <div class="rec-info">
+        <div class="rec-name">${e.description}</div>
+        <div class="rec-sub">${ordinalDay(e.day_of_month)} · ${e.category} · ${statusDot}</div>
+      </div>
+      <div class="rec-amt">
+        <div class="rec-amt-val">${fmtGBP(parseFloat(e.amount_gbp))}</div>
+        <div class="rec-amt-freq">/month</div>
+      </div>
+      <div class="rec-card-actions">
+        <button class="catmgr-row-btn" title="Edit" onclick="editRecExpense(${e.id})"><i class="ti ti-pencil"></i></button>
+        <button class="catmgr-row-btn danger" title="Toggle" onclick="toggleRecExpense(${e.id}, ${!e.is_active})"><i class="ti ${e.is_active ? 'ti-player-pause' : 'ti-player-play'}"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderRecurringIncomeGrid() {
+  const grid = document.getElementById('rec-income-grid');
+  if (!grid) return;
+
+  if (!recurringIncomes.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;font-size:12px;color:#8492a6">No recurring income yet.</div>';
+    return;
+  }
+
+  grid.innerHTML = recurringIncomes.map(i => {
+    const ic = { icon: 'ti-coins', bg: '#ECFDF5', color: '#047857' };
+    const statusDot = i.is_active ? '<span class="dot-green"></span> Active' : '<span class="dot-amber"></span> Paused';
+    const amt = i.currency === 'GBP' ? fmtGBP(parseFloat(i.gross_amount)) : fmtAmt(parseFloat(i.gross_amount), i.currency);
+    return `<div class="rec-card" data-id="${i.id}">
+      <div class="rec-icon" style="background:${ic.bg}"><i class="ti ${ic.icon}" style="color:${ic.color}"></i></div>
+      <div class="rec-info">
+        <div class="rec-name">${i.description}</div>
+        <div class="rec-sub">${ordinalDay(i.day_of_month)} · ${i.source} · ${i.currency} · ${statusDot}</div>
+      </div>
+      <div class="rec-amt">
+        <div class="rec-amt-val">${amt}</div>
+        <div class="rec-amt-freq">/month</div>
+      </div>
+      <div class="rec-card-actions">
+        <button class="catmgr-row-btn" title="Edit" onclick="editRecIncome(${i.id})"><i class="ti ti-pencil"></i></button>
+        <button class="catmgr-row-btn danger" title="Toggle" onclick="toggleRecIncome(${i.id}, ${!i.is_active})"><i class="ti ${i.is_active ? 'ti-player-pause' : 'ti-player-play'}"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function populateRecurringCategorySelect() {
+  const sel = document.getElementById('rec-category');
+  if (!sel) return;
+  const catalogCats = categoryCatalog.map(e => e.category).filter(Boolean);
+  const metaCats = expenseMetadata?.categories || [];
+  const cats = [...new Set([...catalogCats, ...metaCats])].sort();
+  const current = sel.value;
+  sel.innerHTML = cats.map(c => `<option>${c}</option>`).join('');
+  if (current && cats.includes(current)) sel.value = current;
+}
+
+function clearRecurringExpenseForm() {
+  editingRecExpenseId = null;
+  document.getElementById('rec-desc').value = '';
+  document.getElementById('rec-category').value = '';
+  document.getElementById('rec-amount').value = '';
+  document.getElementById('rec-day').value = '1';
+  document.getElementById('rec-start').value = toISODate(todayDate());
+  document.getElementById('rec-end').value = '';
+  setRecExpFormStatus();
+  updateRecExpSaveButton();
+}
+
+function clearRecurringIncomeForm() {
+  editingRecIncomeId = null;
+  document.getElementById('rec-inc-desc').value = '';
+  document.getElementById('rec-inc-source').value = '';
+  document.getElementById('rec-inc-currency').value = 'GBP';
+  document.getElementById('rec-inc-amount').value = '';
+  document.getElementById('rec-inc-day').value = '1';
+  document.getElementById('rec-inc-account').value = '';
+  document.getElementById('rec-inc-start').value = toISODate(todayDate());
+  document.getElementById('rec-inc-end').value = '';
+  setRecIncFormStatus();
+  updateRecIncSaveButton();
+}
+
+function clearRecurringForm() {
+  clearRecurringExpenseForm();
+  clearRecurringIncomeForm();
+}
+
+function setRecExpFormStatus(msg = '', type = '') {
+  const el = document.getElementById('rec-exp-form-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = type ? `form-status ${type}` : 'form-status';
+}
+
+function setRecIncFormStatus(msg = '', type = '') {
+  const el = document.getElementById('rec-inc-form-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = type ? `form-status ${type}` : 'form-status';
+}
+
+function updateRecExpSaveButton() {
+  const btn = document.getElementById('rec-exp-save-btn');
+  if (!btn) return;
+  btn.innerHTML = editingRecExpenseId
+    ? '<i class="ti ti-device-floppy"></i>Update template'
+    : '<i class="ti ti-check"></i>Create template';
+}
+
+function updateRecIncSaveButton() {
+  const btn = document.getElementById('rec-inc-save-btn');
+  if (!btn) return;
+  btn.innerHTML = editingRecIncomeId
+    ? '<i class="ti ti-device-floppy"></i>Update template'
+    : '<i class="ti ti-check"></i>Create template';
+}
+
+async function saveRecurringExpense() {
+  const desc = document.getElementById('rec-desc').value.trim();
+  const category = document.getElementById('rec-category').value;
+  const amount = document.getElementById('rec-amount').value;
+  const day = document.getElementById('rec-day').value;
+  const startDate = document.getElementById('rec-start').value;
+  const endDate = document.getElementById('rec-end').value || null;
+
+  if (!desc || !amount) {
+    setRecExpFormStatus('Description and amount are required.', 'error');
+    return;
+  }
+
+  const payload = {
+    description: desc, category,
+    amount_gbp: amount, day_of_month: parseInt(day) || 1,
+    start_date: startDate, end_date: endDate,
+    is_active: true, tax_deductable: false, payment_method: '', notes: '',
+  };
+
+  try {
+    if (editingRecExpenseId) {
+      await apiPut(`/recurring/expenses/${editingRecExpenseId}`, payload);
+      setRecExpFormStatus('Template updated.', 'success');
+    } else {
+      await apiPost('/recurring/expenses', payload);
+      setRecExpFormStatus('Template created.', 'success');
+    }
+    clearRecurringExpenseForm();
+    await loadRecurringPage();
+  } catch (error) {
+    setRecExpFormStatus(`Error: ${error.message}`, 'error');
+  }
+}
+
+async function saveRecurringIncome() {
+  const desc = document.getElementById('rec-inc-desc').value.trim();
+  const source = document.getElementById('rec-inc-source').value.trim();
+  const currency = document.getElementById('rec-inc-currency').value;
+  const amount = document.getElementById('rec-inc-amount').value;
+  const day = document.getElementById('rec-inc-day').value;
+  const account = document.getElementById('rec-inc-account').value || null;
+  const startDate = document.getElementById('rec-inc-start').value;
+  const endDate = document.getElementById('rec-inc-end').value || null;
+
+  if (!desc || !amount || !source) {
+    setRecIncFormStatus('Description, source, and amount are required.', 'error');
+    return;
+  }
+
+  const payload = {
+    description: desc, source, currency,
+    gross_amount: amount, day_of_month: parseInt(day) || 1,
+    payment_account: account, start_date: startDate, end_date: endDate,
+    is_active: true, is_taxable: true, notes: '',
+  };
+
+  try {
+    if (editingRecIncomeId) {
+      await apiPut(`/recurring/income/${editingRecIncomeId}`, payload);
+      setRecIncFormStatus('Template updated.', 'success');
+    } else {
+      await apiPost('/recurring/income', payload);
+      setRecIncFormStatus('Template created.', 'success');
+    }
+    clearRecurringIncomeForm();
+    await loadRecurringPage();
+  } catch (error) {
+    setRecIncFormStatus(`Error: ${error.message}`, 'error');
+  }
+}
+
+function editRecExpense(id) {
+  const item = recurringExpenses.find(e => e.id === id);
+  if (!item) return;
+  editingRecExpenseId = id;
+  document.getElementById('rec-desc').value = item.description;
+  document.getElementById('rec-category').value = item.category;
+  document.getElementById('rec-amount').value = item.amount_gbp;
+  document.getElementById('rec-day').value = item.day_of_month;
+  document.getElementById('rec-start').value = item.start_date;
+  document.getElementById('rec-end').value = item.end_date || '';
+  setRecExpFormStatus(`Editing "${item.description}"`, 'success');
+  updateRecExpSaveButton();
+  document.getElementById('rec-desc').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function toggleRecExpense(id, newState) {
+  const item = recurringExpenses.find(e => e.id === id);
+  if (!item) return;
+  try {
+    await apiPut(`/recurring/expenses/${id}`, {
+      ...item,
+      is_active: newState,
+    });
+    await loadRecurringPage();
+  } catch (error) {
+    setRecurringFormStatus(`Error: ${error.message}`, 'error');
+  }
+}
+
+function editRecIncome(id) {
+  const item = recurringIncomes.find(i => i.id === id);
+  if (!item) return;
+  editingRecIncomeId = id;
+  document.getElementById('rec-inc-desc').value = item.description;
+  document.getElementById('rec-inc-source').value = item.source || '';
+  document.getElementById('rec-inc-currency').value = item.currency || 'GBP';
+  document.getElementById('rec-inc-amount').value = item.gross_amount;
+  document.getElementById('rec-inc-day').value = item.day_of_month;
+  document.getElementById('rec-inc-account').value = item.payment_account || '';
+  document.getElementById('rec-inc-start').value = item.start_date;
+  document.getElementById('rec-inc-end').value = item.end_date || '';
+  setRecIncFormStatus(`Editing "${item.description}"`, 'success');
+  updateRecIncSaveButton();
+  document.getElementById('rec-inc-desc').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function toggleRecIncome(id, newState) {
+  const item = recurringIncomes.find(i => i.id === id);
+  if (!item) return;
+  try {
+    await apiPut(`/recurring/income/${id}`, {
+      ...item,
+      is_active: newState,
+    });
+    await loadRecurringPage();
+  } catch (error) {
+    setRecurringFormStatus(`Error: ${error.message}`, 'error');
+  }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('period-selector').addEventListener('change', event => {
     selectedPeriodKeys[currentPeriodMode] = event.target.value;
@@ -1798,16 +2177,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     populateExpenseCategoryOptions(false);
   });
 
-  document.getElementById('category-manage-group').addEventListener('change', () => {
-    populateCategoryManagerOptions();
-  });
+  const catInput = document.getElementById('exp-category-input');
+  const catDropdown = document.getElementById('exp-category-dropdown');
+  const catWrap = document.getElementById('exp-category-wrap');
+  if (catInput && catDropdown && catWrap) {
+    catInput.addEventListener('click', () => {
+      const isOpen = catDropdown.classList.contains('open');
+      if (isOpen) {
+        catDropdown.classList.remove('open');
+      } else {
+        const groupSelect = document.getElementById('exp-group');
+        const { top, others } = getCategoryEntriesForGroup(groupSelect.value);
+        _buildCategoryDropdown(catDropdown, top, others,
+          document.getElementById('exp-category'), catInput, '');
+        catDropdown.classList.add('open');
+        setTimeout(() => {
+          const searchBox = catDropdown.querySelector('#exp-category-search');
+          if (searchBox) searchBox.focus();
+        }, 0);
+      }
+    });
+    document.addEventListener('mousedown', e => {
+      if (!catWrap.contains(e.target)) {
+        catDropdown.classList.remove('open');
+      }
+    });
+  }
 
-  document.getElementById('category-manage-select').addEventListener('change', event => {
-    const selectedOption = event.target.selectedOptions[0];
-    document.getElementById('category-manage-name').value = selectedOption
-      ? selectedOption.textContent.replace(/\s+\(\d+\)$/, '')
-      : '';
-    renderCategoryManagerPreview();
+  document.getElementById('catmgr-overlay')?.addEventListener('mousedown', e => {
+    if (e.target === e.currentTarget) closeCategoryManager();
   });
 
   document.getElementById('expense-custom-start').addEventListener('change', () => {

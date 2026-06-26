@@ -110,55 +110,22 @@
     <div class="section" id="sec-expenses">
       <div class="card">
         <div class="card-title"><i class="ti ti-plus"></i>Add new expense</div>
-        <div class="category-manager-shell category-manager-shell-top">
-          <div class="category-manager-toolbar">
-            <div>
-              <div class="category-manager-title">Manage tags</div>
-              <div class="category-manager-subtitle">Add, rename, or remove categories within a group.</div>
+        <div style="margin-bottom:14px">
+          <button class="btn-secondary" type="button" id="category-manager-toggle" onclick="openCategoryManager()">
+            <i class="ti ti-tags"></i>Manage categories
+          </button>
+        </div>
+        <div class="catmgr-overlay" id="catmgr-overlay">
+          <div class="catmgr-modal">
+            <div class="catmgr-header">
+              <div class="catmgr-title">Manage tags</div>
+              <button class="catmgr-close" type="button" onclick="closeCategoryManager()">&times;</button>
             </div>
-            <button class="btn-secondary" type="button" id="category-manager-toggle" onclick="toggleCategoryManager()">
-              <i class="ti ti-tags-off"></i>Hide categories
-            </button>
-          </div>
-          <div class="category-manager-panel" id="category-manager-panel">
-            <div class="category-manager-panel-head">
-              <div>
-                <div class="category-manager-panel-title">Category manager</div>
-                <div class="category-manager-panel-subtitle">Choose a group, edit one category, and preview the tag styles.</div>
-              </div>
-              <button class="btn-ghost" type="button" onclick="toggleCategoryManager(false)">
-                <i class="ti ti-x"></i>Close
-              </button>
-            </div>
-            <div class="category-manager-layout">
-              <div class="category-manager-editor">
-                <div class="category-manager-grid">
-                  <div class="form-group">
-                    <label>Group</label>
-                    <select id="category-manage-group"></select>
-                  </div>
-                  <div class="form-group">
-                    <label>Existing category</label>
-                    <select id="category-manage-select"></select>
-                  </div>
-                  <div class="form-group category-manager-name">
-                    <label>Category name</label>
-                    <input type="text" id="category-manage-name" placeholder="New or renamed category">
-                  </div>
-                </div>
-                <div class="form-status" id="category-manage-status"></div>
-                <div class="form-actions">
-                  <button class="btn-primary" type="button" onclick="createCategory()"><i class="ti ti-plus"></i>Add category</button>
-                  <button class="btn-secondary" type="button" onclick="renameCategory()">Rename</button>
-                  <button class="btn-secondary danger-soft" type="button" onclick="deleteCategory()">Delete</button>
-                </div>
-              </div>
-              <div class="category-manager-preview">
-                <div class="category-manager-preview-head">
-                  <span>Preview</span>
-                  <span id="category-manage-count">0 tags</span>
-                </div>
-                <div class="category-manager-preview-list" id="category-manage-preview"></div>
+            <div class="catmgr-body" id="catmgr-body"></div>
+            <div class="catmgr-footer">
+              <div class="form-status" id="category-manage-status"></div>
+              <div class="catmgr-footer-actions">
+                <button class="btn-secondary" type="button" onclick="closeCategoryManager()">Close</button>
               </div>
             </div>
           </div>
@@ -166,10 +133,14 @@
         <div class="form-grid">
           <div class="form-group"><label>Date</label><input type="date" id="exp-date"></div>
           <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. Tesco weekly shop" id="exp-desc"></div>
-          <div class="form-group">
+          <div class="form-group" style="position:relative">
             <label>Category</label>
-            <select id="exp-category"></select>
-            <div class="field-hint">Most-used categories for this group are listed first.</div>
+            <div class="searchable-select" id="exp-category-wrap">
+              <input type="text" class="searchable-select-input" id="exp-category-input" placeholder="Select or search category…" autocomplete="off" readonly>
+              <input type="hidden" id="exp-category">
+              <div class="searchable-select-dropdown" id="exp-category-dropdown"></div>
+            </div>
+            <div class="field-hint">Top 5 most-used shown first. Type to search.</div>
           </div>
           <div class="form-group"><label>Group</label><select id="exp-group"></select></div>
           <div class="form-group"><label>Amount (GBP)</label><input type="number" placeholder="0.00" step="0.01" id="exp-gbp"></div>
@@ -367,28 +338,55 @@
         <div class="mc"><div class="mc-label">Active templates</div><div class="mc-value" id="mc-rec-count">—</div><div class="mc-sub" id="mc-rec-count-sub"></div></div>
       </div>
       <div class="row2">
-        <div class="card">
-          <div class="card-title"><i class="ti ti-arrow-down-circle"></i>Recurring expenses</div>
-          <div class="rec-grid" id="rec-expense-grid">
-            <div style="grid-column:1/-1;font-size:12px;color:#8492a6">Loading…</div>
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="card-title"><i class="ti ti-arrow-down-circle"></i>Recurring expenses</div>
+            <div class="rec-grid" id="rec-expense-grid">
+              <div style="grid-column:1/-1;font-size:12px;color:#8492a6">Loading…</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title"><i class="ti ti-arrow-up-circle"></i>Recurring income</div>
+            <div class="rec-grid" id="rec-income-grid">
+              <div style="grid-column:1/-1;font-size:12px;color:#8492a6">Loading…</div>
+            </div>
           </div>
         </div>
-        <div class="card">
-          <div class="card-title"><i class="ti ti-arrow-up-circle"></i>Recurring income</div>
-          <div class="rec-grid" id="rec-income-grid">
-            <div style="grid-column:1/-1;font-size:12px;color:#8492a6">Loading…</div>
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="card-title" style="margin-bottom:12px"><i class="ti ti-plus"></i>New recurring expense</div>
+            <div class="form-grid">
+              <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. Rent" id="rec-desc"></div>
+              <div class="form-group"><label>Category</label><select id="rec-category"></select></div>
+              <div class="form-group"><label>Amount (GBP)</label><input type="number" placeholder="0.00" step="0.01" id="rec-amount"></div>
+              <div class="form-group"><label>Day of month</label><input type="number" placeholder="1" min="1" max="31" id="rec-day"></div>
+              <div class="form-group"><label>Start date</label><input type="date" id="rec-start"></div>
+              <div class="form-group"><label>End date — optional</label><input type="date" id="rec-end"></div>
+            </div>
+            <div class="form-status" id="rec-exp-form-status"></div>
+            <div class="form-actions" style="margin-top:10px">
+              <button class="btn-primary" id="rec-exp-save-btn" onclick="saveRecurringExpense()"><i class="ti ti-check"></i>Create template</button>
+              <button class="btn-secondary" type="button" onclick="clearRecurringExpenseForm()">Clear</button>
+            </div>
           </div>
-          <hr style="border:none;border-top:1px solid #e8ecf4;margin:16px 0 14px">
-          <div class="card-title" style="margin-bottom:12px"><i class="ti ti-plus"></i>New recurring template</div>
-          <div class="form-grid">
-            <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. Rent" id="rec-desc"></div>
-            <div class="form-group"><label>Category</label><select id="rec-category"></select></div>
-            <div class="form-group"><label>Amount (GBP)</label><input type="number" placeholder="0.00" id="rec-amount"></div>
-            <div class="form-group"><label>Day of month</label><input type="number" placeholder="1" min="1" max="31" id="rec-day"></div>
-            <div class="form-group"><label>Start date</label><input type="date" id="rec-start"></div>
-            <div class="form-group"><label>End date — optional</label><input type="date" id="rec-end"></div>
+          <div class="card">
+            <div class="card-title" style="margin-bottom:12px"><i class="ti ti-plus"></i>New recurring income</div>
+            <div class="form-grid">
+              <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. Monthly salary" id="rec-inc-desc"></div>
+              <div class="form-group"><label>Source</label><input type="text" placeholder="e.g. Employer" id="rec-inc-source"></div>
+              <div class="form-group"><label>Currency</label><select id="rec-inc-currency"><option>GBP</option><option>HKD</option><option>USD</option><option>EUR</option></select></div>
+              <div class="form-group"><label>Gross amount</label><input type="number" placeholder="0.00" step="0.01" id="rec-inc-amount"></div>
+              <div class="form-group"><label>Day of month</label><input type="number" placeholder="1" min="1" max="31" id="rec-inc-day"></div>
+              <div class="form-group"><label>Payment account</label><select id="rec-inc-account"><option value="">— No linked account</option><option>Monzo Current</option><option>HSBC HK GBP</option><option>HSBC HK HKD</option></select></div>
+              <div class="form-group"><label>Start date</label><input type="date" id="rec-inc-start"></div>
+              <div class="form-group"><label>End date — optional</label><input type="date" id="rec-inc-end"></div>
+            </div>
+            <div class="form-status" id="rec-inc-form-status"></div>
+            <div class="form-actions" style="margin-top:10px">
+              <button class="btn-primary" id="rec-inc-save-btn" onclick="saveRecurringIncome()"><i class="ti ti-check"></i>Create template</button>
+              <button class="btn-secondary" type="button" onclick="clearRecurringIncomeForm()">Clear</button>
+            </div>
           </div>
-          <div class="form-actions" style="margin-top:10px"><button class="btn-primary" onclick="saveRecurring()"><i class="ti ti-check"></i>Create template</button></div>
         </div>
       </div>
     </div>
