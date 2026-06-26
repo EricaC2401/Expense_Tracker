@@ -36,6 +36,7 @@ from src.app import (
     build_recurring_similarity_warning,
     build_expense_payload,
     build_finance_snapshot_payload_from_row,
+    get_expense_period_default_anchor_date,
     get_expense_period_bounds,
     get_report_period_bounds,
     build_income_totals_rows,
@@ -46,7 +47,12 @@ from src.app import (
     get_recurring_preview_text,
     get_manual_category_value,
 )
-from src.db import StoredExchangeRecord, StoredFinanceSnapshotEntry, StoredRecurringExpense
+from src.db import (
+    StoredExchangeRecord,
+    StoredExpenseTransaction,
+    StoredFinanceSnapshotEntry,
+    StoredRecurringExpense,
+)
 from src.models import (
     ValidationError,
     validate_expense_transaction,
@@ -141,7 +147,7 @@ def test_get_expense_period_bounds_month_defaults_to_current_month(
     def fake_selectbox(label, options, index=0, **kwargs):
         if label == "Period":
             return "Month"
-        if label == "Month":
+        if label == "Time frame":
             month_choice_calls.append(list(options))
             return options[index]
         raise AssertionError(f"Unexpected selectbox label: {label}")
@@ -160,6 +166,208 @@ def test_get_expense_period_bounds_month_defaults_to_current_month(
     else:
         next_month_start = date(current_month_start.year, current_month_start.month + 1, 1)
         assert end_date == next_month_start.fromordinal(next_month_start.toordinal() - 1)
+
+
+def test_get_expense_period_default_anchor_date_uses_latest_expense_date() -> None:
+    anchor_date = get_expense_period_default_anchor_date(
+        transactions=[
+            StoredExpenseTransaction(
+                id=1,
+                transaction_date=date(2026, 4, 2),
+                description="Older expense",
+                category="Food",
+                group_name="Living",
+                amount_gbp=Decimal("10.00"),
+                amount_hkd=None,
+                tax_deductable=False,
+                payment_method="Monzo",
+                notes=None,
+                created_at=datetime(2026, 4, 2, 10, 0, 0),
+                updated_at=datetime(2026, 4, 2, 10, 0, 0),
+            ),
+            StoredExpenseTransaction(
+                id=2,
+                transaction_date=date(2026, 6, 23),
+                description="Latest expense",
+                category="Food",
+                group_name="Living",
+                amount_gbp=Decimal("12.00"),
+                amount_hkd=None,
+                tax_deductable=False,
+                payment_method="Monzo",
+                notes=None,
+                created_at=datetime(2026, 6, 23, 10, 0, 0),
+                updated_at=datetime(2026, 6, 23, 10, 0, 0),
+            ),
+        ]
+    )
+
+    assert anchor_date == date(2026, 6, 23)
+
+
+def test_get_expense_period_bounds_month_defaults_to_latest_available_month(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import streamlit as st
+
+    selected_month_indexes: list[int] = []
+
+    def fake_selectbox(label, options, index=0, **kwargs):
+        if label == "Period":
+            return "Month"
+        if label == "Time frame":
+            selected_month_indexes.append(index)
+            return options[index]
+        raise AssertionError(f"Unexpected selectbox label: {label}")
+
+    monkeypatch.setattr(st, "selectbox", fake_selectbox)
+
+    start_date, end_date = get_expense_period_bounds(
+        transactions=[
+            StoredExpenseTransaction(
+                id=1,
+                transaction_date=date(2026, 4, 10),
+                description="Older expense",
+                category="Food",
+                group_name="Living",
+                amount_gbp=Decimal("10.00"),
+                amount_hkd=None,
+                tax_deductable=False,
+                payment_method="Monzo",
+                notes=None,
+                created_at=datetime(2026, 4, 10, 10, 0, 0),
+                updated_at=datetime(2026, 4, 10, 10, 0, 0),
+            ),
+            StoredExpenseTransaction(
+                id=2,
+                transaction_date=date(2026, 6, 23),
+                description="Latest expense",
+                category="Food",
+                group_name="Living",
+                amount_gbp=Decimal("12.00"),
+                amount_hkd=None,
+                tax_deductable=False,
+                payment_method="Monzo",
+                notes=None,
+                created_at=datetime(2026, 6, 23, 10, 0, 0),
+                updated_at=datetime(2026, 6, 23, 10, 0, 0),
+            ),
+        ],
+    )
+
+    assert selected_month_indexes == [0]
+    assert start_date == date(2026, 6, 1)
+    assert end_date == date(2026, 6, 30)
+
+
+def test_get_expense_period_bounds_financial_year_defaults_to_latest_available_period(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import streamlit as st
+
+    selected_financial_year_indexes: list[int] = []
+
+    def fake_selectbox(label, options, index=0, **kwargs):
+        if label == "Period":
+            return "Financial Year"
+        if label == "Time frame":
+            selected_financial_year_indexes.append(index)
+            return options[index]
+        raise AssertionError(f"Unexpected selectbox label: {label}")
+
+    monkeypatch.setattr(st, "selectbox", fake_selectbox)
+
+    start_date, end_date = get_expense_period_bounds(
+        transactions=[
+            StoredExpenseTransaction(
+                id=1,
+                transaction_date=date(2025, 2, 10),
+                description="Older expense",
+                category="Food",
+                group_name="Living",
+                amount_gbp=Decimal("10.00"),
+                amount_hkd=None,
+                tax_deductable=False,
+                payment_method="Monzo",
+                notes=None,
+                created_at=datetime(2025, 2, 10, 10, 0, 0),
+                updated_at=datetime(2025, 2, 10, 10, 0, 0),
+            ),
+            StoredExpenseTransaction(
+                id=2,
+                transaction_date=date(2026, 6, 23),
+                description="Latest expense",
+                category="Food",
+                group_name="Living",
+                amount_gbp=Decimal("12.00"),
+                amount_hkd=None,
+                tax_deductable=False,
+                payment_method="Monzo",
+                notes=None,
+                created_at=datetime(2026, 6, 23, 10, 0, 0),
+                updated_at=datetime(2026, 6, 23, 10, 0, 0),
+            ),
+        ],
+    )
+
+    assert selected_financial_year_indexes == [0]
+    assert start_date == date(2026, 4, 6)
+    assert end_date == date(2027, 4, 5)
+
+
+def test_get_expense_period_bounds_calendar_year_defaults_to_latest_available_period(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import streamlit as st
+
+    selected_calendar_year_indexes: list[int] = []
+
+    def fake_selectbox(label, options, index=0, **kwargs):
+        if label == "Period":
+            return "Calendar Year"
+        if label == "Time frame":
+            selected_calendar_year_indexes.append(index)
+            return options[index]
+        raise AssertionError(f"Unexpected selectbox label: {label}")
+
+    monkeypatch.setattr(st, "selectbox", fake_selectbox)
+
+    start_date, end_date = get_expense_period_bounds(
+        transactions=[
+            StoredExpenseTransaction(
+                id=1,
+                transaction_date=date(2025, 12, 10),
+                description="Older expense",
+                category="Food",
+                group_name="Living",
+                amount_gbp=Decimal("10.00"),
+                amount_hkd=None,
+                tax_deductable=False,
+                payment_method="Monzo",
+                notes=None,
+                created_at=datetime(2025, 12, 10, 10, 0, 0),
+                updated_at=datetime(2025, 12, 10, 10, 0, 0),
+            ),
+            StoredExpenseTransaction(
+                id=2,
+                transaction_date=date(2026, 6, 23),
+                description="Latest expense",
+                category="Food",
+                group_name="Living",
+                amount_gbp=Decimal("12.00"),
+                amount_hkd=None,
+                tax_deductable=False,
+                payment_method="Monzo",
+                notes=None,
+                created_at=datetime(2026, 6, 23, 10, 0, 0),
+                updated_at=datetime(2026, 6, 23, 10, 0, 0),
+            ),
+        ],
+    )
+
+    assert selected_calendar_year_indexes == [0]
+    assert start_date == date(2026, 1, 1)
+    assert end_date == date(2026, 12, 31)
 
 
 def test_get_report_period_bounds_month_defaults_to_current_month(

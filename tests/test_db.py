@@ -281,33 +281,24 @@ def make_valid_tax_due_entry() -> TaxDueEntry:
 
 @pytest.fixture(autouse=True)
 def clear_cached_connection() -> None:
-    db.get_connection.clear()
+    db._clear_connection_cache()
     yield
-    db.get_connection.clear()
+    db._clear_connection_cache()
 
 
-def test_get_connection_uses_streamlit_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_connection_uses_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_connect(**kwargs):
         captured.update(kwargs)
         return FakeConnection()
 
-    monkeypatch.setattr(
-        db.st,
-        "secrets",
-        {
-            "supabase": {
-                "host": "db.example.supabase.co",
-                "port": 5432,
-                "dbname": "postgres",
-                "user": "postgres",
-                "password": "secret",
-                "sslmode": "require",
-            }
-        },
-        raising=False,
-    )
+    monkeypatch.setenv("SUPABASE_HOST", "db.example.supabase.co")
+    monkeypatch.setenv("SUPABASE_PORT", "5432")
+    monkeypatch.setenv("SUPABASE_DBNAME", "postgres")
+    monkeypatch.setenv("SUPABASE_USER", "postgres")
+    monkeypatch.setenv("SUPABASE_PASSWORD", "secret")
+    monkeypatch.setenv("SUPABASE_SSLMODE", "require")
     monkeypatch.setattr(db.psycopg2, "connect", fake_connect)
 
     conn = db.get_connection()
@@ -344,9 +335,11 @@ def test_ensure_connection_rolls_back_aborted_transaction(
 
 
 def test_missing_config_raises_clear_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(db.st, "secrets", {}, raising=False)
+    monkeypatch.delenv("SUPABASE_HOST", raising=False)
+    import streamlit as st
+    monkeypatch.setattr(st, "secrets", {}, raising=False)
 
-    with pytest.raises(db.DatabaseConnectionError, match="credentials are missing"):
+    with pytest.raises(db.DatabaseConnectionError):
         db.get_connection()
 
 

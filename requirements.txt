@@ -2,3 +2,6 @@ streamlit
 pandas
 psycopg2-binary
 pytest
+fastapi
+uvicorn[standard]
+python-multipart

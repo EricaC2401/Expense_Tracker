@@ -1012,6 +1012,17 @@ def get_recent_expenses_default_start_date(*, min_date: date, max_date: date) ->
     return max(min_date, max_date.replace(day=1))
 
 
+def get_expense_period_default_anchor_date(
+    *,
+    transactions: list[StoredExpenseTransaction],
+) -> date:
+    """Return the latest available expense date, falling back to today when empty."""
+
+    if not transactions:
+        return date.today()
+    return max(transaction.transaction_date for transaction in transactions)
+
+
 def get_expense_period_bounds(
     *,
     transactions: list[StoredExpenseTransaction],
@@ -1019,33 +1030,36 @@ def get_expense_period_bounds(
     """Return the active expense-grid date range."""
 
     dates = [transaction.transaction_date for transaction in transactions]
-    today_value = date.today()
-    min_date = min(dates) if dates else today_value
-    max_date = max(dates) if dates else today_value
+    anchor_date = get_expense_period_default_anchor_date(transactions=transactions)
+    min_date = min(dates) if dates else anchor_date
+    max_date = max(dates) if dates else anchor_date
 
-    period_mode = st.selectbox(
-        "Period",
-        ("Month", "Financial Year", "Calendar Year", "Custom"),
-        index=0,
-        key="expense_period_mode",
-    )
+    period_col, timeframe_col = st.columns(2)
+    with period_col:
+        period_mode = st.selectbox(
+            "Period",
+            ("Month", "Financial Year", "Calendar Year", "Custom"),
+            index=0,
+            key="expense_period_mode",
+        )
 
     if period_mode == "Month":
         month_options = sorted(
             {
                 *[transaction.transaction_date.replace(day=1) for transaction in transactions],
-                today_value.replace(day=1),
+                anchor_date.replace(day=1),
             },
             reverse=True,
         )
-        default_month = today_value.replace(day=1)
-        selected_month = st.selectbox(
-            "Month",
-            options=month_options,
-            index=month_options.index(default_month),
-            format_func=lambda value: value.strftime("%B %Y"),
-            key="expense_month",
-        )
+        default_month = anchor_date.replace(day=1)
+        with timeframe_col:
+            selected_month = st.selectbox(
+                "Time frame",
+                options=month_options,
+                index=month_options.index(default_month),
+                format_func=lambda value: value.strftime("%B %Y"),
+                key="expense_month",
+            )
         month_start = selected_month
         if selected_month.month == 12:
             next_month_start = date(selected_month.year + 1, 1, 1)
@@ -1059,31 +1073,36 @@ def get_expense_period_bounds(
             {
                 2021,
                 2022,
-                get_financial_year_start(today_value).year,
+                get_financial_year_start(anchor_date).year,
                 *[get_financial_year_start(value).year for value in dates],
             },
             reverse=True,
         )
-        default_fy_start_year = get_financial_year_start(today_value).year
-        selected_fy_start_year = st.selectbox(
-            "Financial year",
-            options=fy_start_years,
-            index=fy_start_years.index(default_fy_start_year),
-            format_func=lambda value: f"{value}/{str(value + 1)[-2:]}",
-            key="expense_financial_year",
-        )
+        default_fy_start_year = get_financial_year_start(anchor_date).year
+        with timeframe_col:
+            selected_fy_start_year = st.selectbox(
+                "Time frame",
+                options=fy_start_years,
+                index=fy_start_years.index(default_fy_start_year),
+                format_func=lambda value: f"{value}/{str(value + 1)[-2:]}",
+                key="expense_financial_year",
+            )
         return (date(selected_fy_start_year, 4, 6), date(selected_fy_start_year + 1, 4, 5))
 
     if period_mode == "Calendar Year":
-        calendar_years = sorted({value.year for value in [*dates, today_value]}, reverse=True)
-        selected_year = st.selectbox(
-            "Calendar year",
-            options=calendar_years,
-            index=calendar_years.index(today_value.year),
-            key="expense_calendar_year",
-        )
+        calendar_years = sorted({value.year for value in [*dates, anchor_date]}, reverse=True)
+        with timeframe_col:
+            selected_year = st.selectbox(
+                "Time frame",
+                options=calendar_years,
+                index=calendar_years.index(anchor_date.year),
+                format_func=lambda value: str(value),
+                key="expense_calendar_year",
+            )
         return (date(selected_year, 1, 1), date(selected_year, 12, 31))
 
+    with timeframe_col:
+        st.markdown("&nbsp;", unsafe_allow_html=True)
     filter_col1, filter_col2 = st.columns(2)
     default_start_date = get_recent_expenses_default_start_date(
         min_date=min_date,
@@ -5417,7 +5436,7 @@ def collect_selected_transaction_ids(rows: list[dict[str, object]]) -> list[int]
 def render_transaction_grid() -> None:
     """Render the recent expenses section with inline edit and bulk delete."""
 
-    st.subheader("Recent Expenses")
+    st.subheader("Expenses")
 
     try:
         transactions = fetch_transactions()
@@ -6798,9 +6817,9 @@ def main() -> None:
         render_reports_section()
         return
 
-    render_manual_entry_form()
-    st.divider()
     render_transaction_grid()
+    st.divider()
+    render_manual_entry_form()
 
 
 if __name__ == "__main__":

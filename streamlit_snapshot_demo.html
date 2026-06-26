@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker Streamlit Snapshot Demo</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; font-family: "Segoe UI", Arial, sans-serif; background: #f5f7fc; color: #182033; }
+body { min-height: 100vh; }
+a { color: inherit; }
+.app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+.sidebar { background: linear-gradient(180deg, #151929 0%, #1c2238 100%); color: #e7ecf9; padding: 18px 0; }
+.brand { padding: 0 18px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.brand-kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(231, 236, 249, 0.55); }
+.brand-title { font-size: 22px; font-weight: 700; margin-top: 6px; }
+.brand-sub { font-size: 13px; color: rgba(231, 236, 249, 0.72); margin-top: 6px; line-height: 1.4; }
+.nav-group { padding: 18px 0 0; }
+.nav-title { padding: 0 18px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(231, 236, 249, 0.36); }
+.nav-btn {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: rgba(231, 236, 249, 0.72);
+  text-align: left;
+  padding: 12px 18px;
+  font-size: 15px;
+  cursor: pointer;
+  border-left: 4px solid transparent;
+}
+.nav-btn:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.nav-btn.active { background: rgba(255, 255, 255, 0.09); color: #fff; border-left-color: #6b5cff; }
+.main { padding: 22px; }
+.hero {
+  background: #fff;
+  border: 1px solid #e3e8f3;
+  border-radius: 18px;
+  padding: 20px 22px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+}
+.hero-kicker { text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; font-weight: 700; color: #6d67c5; }
+.hero-title { font-size: 34px; font-weight: 700; margin-top: 8px; }
+.hero-desc { font-size: 15px; color: #5d6781; margin-top: 10px; max-width: 920px; line-height: 1.5; }
+.hero-note {
+  margin-top: 14px;
+  display: inline-block;
+  background: #eef2ff;
+  color: #3940a0;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.section { display: none; margin-top: 18px; }
+.section.active { display: block; }
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.pill {
+  padding: 7px 12px;
+  border: 1px solid #dce3f1;
+  border-radius: 999px;
+  background: #fff;
+  color: #5d6781;
+  font-size: 13px;
+  font-weight: 600;
+}
+.grid-4, .grid-3, .grid-2 { display: grid; gap: 14px; }
+.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card {
+  background: #fff;
+  border: 1px solid #e3e8f3;
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.03);
+}
+.metric-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #7d879f; font-weight: 700; }
+.metric-value { font-size: 28px; font-weight: 700; margin-top: 8px; }
+.metric-value.pos { color: #0e6c55; }
+.metric-value.neg { color: #b23a2f; }
+.metric-sub { margin-top: 6px; font-size: 13px; color: #5d6781; }
+.card-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: #7d879f; font-weight: 700; margin-bottom: 12px; }
+.card-subtitle { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #182033; }
+.placeholder-chart {
+  height: 260px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(83, 74, 183, 0.10), rgba(83, 74, 183, 0.02)),
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent 88px,
+      rgba(24, 32, 51, 0.05) 88px,
+      rgba(24, 32, 51, 0.05) 89px
+    ),
+    repeating-linear-gradient(
+      to top,
+      #f6f8fd 0,
+      #f6f8fd 43px,
+      #e9eef8 43px,
+      #e9eef8 44px
+    );
+  position: relative;
+  overflow: hidden;
+}
+.bars {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 16px;
+  top: 16px;
+  display: flex;
+  align-items: end;
+  gap: 18px;
+}
+.bar {
+  flex: 1;
+  background: linear-gradient(180deg, #6b5cff 0%, #534ab7 100%);
+  border-radius: 12px 12px 4px 4px;
+  min-width: 18px;
+}
+.list { display: grid; gap: 10px; }
+.list-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf1f8;
+  font-size: 14px;
+}
+.list-row:last-child { border-bottom: 0; }
+.list-muted { color: #5d6781; }
+.list-strong { font-weight: 700; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 11px 10px; border-bottom: 1px solid #edf1f8; text-align: left; white-space: nowrap; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #7d879f; background: #f8faff; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #7d879f; font-weight: 700; margin-bottom: 6px; }
+.fake-input, .fake-select, .fake-textarea {
+  width: 100%;
+  border: 1px solid #d8e0ef;
+  border-radius: 10px;
+  background: #fff;
+  color: #182033;
+  padding: 11px 12px;
+  font-size: 14px;
+}
+.fake-textarea { min-height: 92px; }
+.button-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.button-primary, .button-secondary {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+.button-primary { background: #534ab7; color: #fff; }
+.button-secondary { background: #fff; color: #182033; border-color: #d8e0ef; }
+.tag {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #eef2ff;
+  color: #4f46b8;
+}
+.split-note {
+  margin-top: 10px;
+  color: #5d6781;
+  font-size: 13px;
+  line-height: 1.5;
+}
+@media (max-width: 1100px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { padding-bottom: 10px; }
+  .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-3 { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 680px) {
+  .main { padding: 14px; }
+  .hero { padding: 18px; }
+  .hero-title { font-size: 28px; }
+  .grid-4 { grid-template-columns: 1fr; }
+  .form-grid { grid-template-columns: 1fr; }
+  .nav-btn { font-size: 14px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-kicker">Personal Finance</div>
+      <div class="brand-title">Expense Tracker</div>
+      <div class="brand-sub">Static HTML demo of the current Streamlit app structure and screens.</div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">Main</div>
+      <button class="nav-btn active" data-target="dashboard">Dashboard</button>
+      <button class="nav-btn" data-target="expenses">Expenses</button>
+      <button class="nav-btn" data-target="income">Income</button>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">Finance</div>
+      <button class="nav-btn" data-target="finance">Finance snapshot</button>
+      <button class="nav-btn" data-target="recurring">Recurring</button>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">Insights</div>
+      <button class="nav-btn" data-target="reports">Reports</button>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">Data</div>
+      <button class="nav-btn" data-target="import">Import</button>
+      <button class="nav-btn" data-target="export">Export</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <section class="hero">
+      <div class="hero-kicker" id="hero-kicker">Overview</div>
+      <div class="hero-title" id="hero-title">Dashboard</div>
+      <div class="hero-desc" id="hero-desc">Combined summary across income, expenses, tax, and current balances.</div>
+      <div class="hero-note">Static demo only: this is meant to show the current app visually, not reproduce every Streamlit interaction.</div>
+    </section>
+
+    <section class="section active" id="section-dashboard">
+      <div class="toolbar">
+        <div class="pill">Month</div>
+        <div class="pill">Financial year</div>
+        <div class="pill">Calendar year</div>
+        <div class="pill">Custom</div>
+      </div>
+
+      <div class="grid-4">
+        <div class="card"><div class="metric-label">Gross income</div><div class="metric-value pos">GBP 48,200</div><div class="metric-sub">2026-04-06 to 2027-04-05</div></div>
+        <div class="card"><div class="metric-label">Tax</div><div class="metric-value">GBP 9,180</div><div class="metric-sub">19.0% of income</div></div>
+        <div class="card"><div class="metric-label">Taxable expense</div><div class="metric-value neg">GBP 4,860</div><div class="metric-sub">10.1% of income</div></div>
+        <div class="card"><div class="metric-label">Net Cash Inflow / Outflow</div><div class="metric-value pos">+GBP 11,940</div><div class="metric-sub">24.8% of income</div></div>
+        <div class="card"><div class="metric-label">Expense ex Tax (Used)</div><div class="metric-value neg">GBP 22,410</div><div class="metric-sub">46.5% of income</div></div>
+        <div class="card"><div class="metric-label">Expense ex Tax (Paid)</div><div class="metric-value neg">GBP 27,080</div><div class="metric-sub">56.2% of income</div></div>
+        <div class="card"><div class="metric-label">Saving (Used)</div><div class="metric-value pos">GBP 16,610</div><div class="metric-sub">34.5% savings rate</div></div>
+        <div class="card"><div class="metric-label">Saving (Paid)</div><div class="metric-value pos">GBP 11,940</div><div class="metric-sub">24.8% savings rate</div></div>
+      </div>
+
+      <div class="card" style="margin-top: 14px;">
+        <div class="card-title">Expenses by month</div>
+        <div class="placeholder-chart">
+          <div class="bars">
+            <div class="bar" style="height: 48%;"></div>
+            <div class="bar" style="height: 57%;"></div>
+            <div class="bar" style="height: 62%;"></div>
+            <div class="bar" style="height: 45%;"></div>
+            <div class="bar" style="height: 70%;"></div>
+            <div class="bar" style="height: 60%;"></div>
+            <div class="bar" style="height: 76%;"></div>
+            <div class="bar" style="height: 54%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-3" style="margin-top: 14px;">
+        <div class="card">
+          <div class="card-title">Top categories</div>
+          <div class="list">
+            <div class="list-row"><span class="list-muted">Rent</span><span class="list-strong">GBP 12,600</span></div>
+            <div class="list-row"><span class="list-muted">Groceries</span><span class="list-strong">GBP 3,420</span></div>
+            <div class="list-row"><span class="list-muted">Travel</span><span class="list-strong">GBP 2,180</span></div>
+            <div class="list-row"><span class="list-muted">Utilities</span><span class="list-strong">GBP 1,460</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Expense breakout</div>
+          <div class="list">
+            <div class="list-row"><span class="list-muted">Expense ex tax (used)</span><span class="list-strong">GBP 22,410</span></div>
+            <div class="list-row"><span class="list-muted">Expense ex tax (paid)</span><span class="list-strong">GBP 27,080</span></div>
+            <div class="list-row"><span class="list-muted">Tax paid</span><span class="list-strong">GBP 4,200</span></div>
+            <div class="list-row"><span class="list-muted">Tax due</span><span class="list-strong">GBP 4,980</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Finance snapshot</div>
+          <div class="list">
+            <div class="list-row"><span class="list-muted">GBP balances</span><span class="list-strong">GBP 18,540</span></div>
+            <div class="list-row"><span class="list-muted">HKD balances</span><span class="list-strong">HKD 126,000</span></div>
+            <div class="list-row"><span class="list-muted">USD balances</span><span class="list-strong">USD 2,900</span></div>
+            <div class="list-row"><span class="list-muted">Tracked accounts</span><span class="list-strong">6</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-expenses">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Expense Tracker</div>
+          <div class="card-subtitle">Quick-add expense form</div>
+          <div class="form-grid">
+            <div class="field"><label>Date</label><div class="fake-input">2026-06-25</div></div>
+            <div class="field"><label>Description</label><div class="fake-input">Tesco weekly shop</div></div>
+            <div class="field"><label>Category</label><div class="fake-select">Groceries</div></div>
+            <div class="field"><label>Group</label><div class="fake-select">Living</div></div>
+            <div class="field"><label>Amount (GBP)</label><div class="fake-input">84.20</div></div>
+            <div class="field"><label>Amount (HKD)</label><div class="fake-input">Optional</div></div>
+            <div class="field"><label>Payment method</label><div class="fake-select">Monzo Current</div></div>
+            <div class="field"><label>Notes</label><div class="fake-input">Family groceries</div></div>
+          </div>
+          <div class="split-note">The real Streamlit page includes quick entry, recent transactions, filters, inline edits, and delete actions.</div>
+          <div class="button-row">
+            <div class="button-primary">Save expense</div>
+            <div class="button-secondary">Clear</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Recent Expenses</div>
+          <div class="card-subtitle">Filters and transaction table</div>
+          <div class="toolbar">
+            <div class="pill">Search description</div>
+            <div class="pill">Group filter</div>
+            <div class="pill">Category filter</div>
+            <div class="pill">Payment method</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Date</th><th>Description</th><th>Category</th><th>Group</th><th>Amount</th><th>Payment</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>2026-06-24</td><td>Rent</td><td>Housing</td><td>Living</td><td>GBP 1,050.00</td><td>Monzo Current</td></tr>
+                <tr><td>2026-06-23</td><td>MTR top-up</td><td>Travel</td><td>Living</td><td>HKD 500.00</td><td>HSBC HK HKD</td></tr>
+                <tr><td>2026-06-22</td><td>Accountant fee</td><td>Tax</td><td>TaxPayment</td><td>GBP 300.00</td><td>HSBC HK GBP</td></tr>
+                <tr><td>2026-06-21</td><td>Coffee with client</td><td>Food</td><td>Living</td><td>GBP 12.80</td><td>Monzo Current</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-income">
+      <div class="grid-3">
+        <div class="card"><div class="metric-label">Gross income</div><div class="metric-value pos">GBP 48,200</div><div class="metric-sub">All income in selected period</div></div>
+        <div class="card"><div class="metric-label">Tax due</div><div class="metric-value">GBP 4,980</div><div class="metric-sub">Tracked separately from tax paid</div></div>
+        <div class="card"><div class="metric-label">After-tax income</div><div class="metric-value pos">GBP 43,220</div><div class="metric-sub">Gross minus tax due</div></div>
+      </div>
+
+      <div class="grid-2" style="margin-top: 14px;">
+        <div class="card">
+          <div class="card-title">Income Tracking</div>
+          <div class="card-subtitle">Income form</div>
+          <div class="form-grid">
+            <div class="field"><label>Income date</label><div class="fake-input">2026-06-25</div></div>
+            <div class="field"><label>Description</label><div class="fake-input">June salary</div></div>
+            <div class="field"><label>Source</label><div class="fake-input">Employer</div></div>
+            <div class="field"><label>Currency</label><div class="fake-select">GBP</div></div>
+            <div class="field"><label>Gross amount</label><div class="fake-input">4,200.00</div></div>
+            <div class="field"><label>Payment account</label><div class="fake-select">Monzo Current</div></div>
+          </div>
+          <div class="button-row">
+            <div class="button-primary">Save Income</div>
+            <div class="button-secondary">Import Income CSV</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Recent Income</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Date</th><th>Description</th><th>Source</th><th>Currency</th><th>Gross</th><th>GBP equiv.</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>2026-06-25</td><td>June salary</td><td>Employer</td><td>GBP</td><td>4,200.00</td><td>GBP 4,200.00</td></tr>
+                <tr><td>2026-06-12</td><td>Freelance project</td><td>Client A</td><td>USD</td><td>1,500.00</td><td>GBP 1,180.00</td></tr>
+                <tr><td>2026-06-01</td><td>Dividend</td><td>Broker</td><td>HKD</td><td>7,200.00</td><td>GBP 710.00</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-finance">
+      <div class="grid-3">
+        <div class="card"><div class="metric-label">Total (GBP equiv.)</div><div class="metric-value pos">GBP 31,540</div><div class="metric-sub">Latest reference view</div></div>
+        <div class="card"><div class="metric-label">Total (HKD equiv.)</div><div class="metric-value">HKD 320,900</div><div class="metric-sub">Converted snapshot total</div></div>
+        <div class="card"><div class="metric-label">Accounts tracked</div><div class="metric-value">6</div><div class="metric-sub">Across banks and currencies</div></div>
+      </div>
+
+      <div class="grid-2" style="margin-top: 14px;">
+        <div class="card">
+          <div class="card-title">Finance Snapshot</div>
+          <div class="card-subtitle">Current balances</div>
+          <div class="list">
+            <div class="list-row"><span class="list-muted">Monzo / Current / GBP</span><span class="list-strong">GBP 5,460</span></div>
+            <div class="list-row"><span class="list-muted">HSBC HK / GBP / Savings</span><span class="list-strong">GBP 9,820</span></div>
+            <div class="list-row"><span class="list-muted">HSBC HK / HKD / Current</span><span class="list-strong">HKD 126,000</span></div>
+            <div class="list-row"><span class="list-muted">Broker / USD / Investment</span><span class="list-strong">USD 2,900</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Update Snapshot</div>
+          <div class="form-grid">
+            <div class="field"><label>Snapshot date</label><div class="fake-input">2026-06-25</div></div>
+            <div class="field"><label>Institution</label><div class="fake-input">Monzo</div></div>
+            <div class="field"><label>Account</label><div class="fake-input">Current</div></div>
+            <div class="field"><label>Currency</label><div class="fake-select">GBP</div></div>
+            <div class="field"><label>Balance</label><div class="fake-input">5,460.00</div></div>
+            <div class="field"><label>Account type</label><div class="fake-input">Current account</div></div>
+          </div>
+          <div class="button-row">
+            <div class="button-primary">Save Finance Snapshot</div>
+            <div class="button-secondary">View history</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-recurring">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Recurring Expenses</div>
+          <div class="list">
+            <div class="list-row"><span class="list-muted">Rent <span class="tag">Monthly</span></span><span class="list-strong">GBP 1,050</span></div>
+            <div class="list-row"><span class="list-muted">Phone bill <span class="tag">Monthly</span></span><span class="list-strong">GBP 24</span></div>
+            <div class="list-row"><span class="list-muted">Gym <span class="tag">Monthly</span></span><span class="list-strong">GBP 55</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Recurring Income</div>
+          <div class="list">
+            <div class="list-row"><span class="list-muted">Salary <span class="tag">Monthly</span></span><span class="list-strong">GBP 4,200</span></div>
+            <div class="list-row"><span class="list-muted">Rental income <span class="tag">Monthly</span></span><span class="list-strong">GBP 980</span></div>
+          </div>
+          <div class="card-subtitle" style="margin-top: 18px;">New recurring template</div>
+          <div class="form-grid">
+            <div class="field"><label>Description</label><div class="fake-input">Salary</div></div>
+            <div class="field"><label>Category</label><div class="fake-select">Employment</div></div>
+            <div class="field"><label>Amount</label><div class="fake-input">4,200.00</div></div>
+            <div class="field"><label>Day of month</label><div class="fake-input">28</div></div>
+            <div class="field"><label>Start date</label><div class="fake-input">2026-01-01</div></div>
+            <div class="field"><label>End date</label><div class="fake-input">Optional</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-reports">
+      <div class="toolbar">
+        <div class="pill">Financial year</div>
+        <div class="pill">All groups</div>
+        <div class="pill">All categories</div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card"><div class="metric-label">Total (GBP)</div><div class="metric-value">GBP 27,080</div><div class="metric-sub">Filtered period</div></div>
+        <div class="card"><div class="metric-label">Total (HKD)</div><div class="metric-value">HKD 22,400</div><div class="metric-sub">HKD expenses only</div></div>
+        <div class="card"><div class="metric-label">Transactions</div><div class="metric-value">142</div><div class="metric-sub">In date range</div></div>
+      </div>
+
+      <div class="grid-2" style="margin-top: 14px;">
+        <div class="card">
+          <div class="card-title">Spending by category</div>
+          <div class="placeholder-chart">
+            <div class="bars">
+              <div class="bar" style="height: 76%;"></div>
+              <div class="bar" style="height: 42%;"></div>
+              <div class="bar" style="height: 34%;"></div>
+              <div class="bar" style="height: 29%;"></div>
+              <div class="bar" style="height: 22%;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Largest expenses</div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>2026-06-24</td><td>Rent</td><td>Housing</td><td>GBP 1,050.00</td></tr>
+                <tr><td>2026-05-18</td><td>Flight to Hong Kong</td><td>Travel</td><td>GBP 780.00</td></tr>
+                <tr><td>2026-04-07</td><td>Self-assessment payment</td><td>Tax</td><td>GBP 620.00</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-import">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Import</div>
+          <div class="card-subtitle">Expense CSV import</div>
+          <div class="fake-textarea">Expected columns:
+
+date
+description
+category
+group
+amount_gbp
+amount_hkd
+tax_deductable
+payment_method
+notes</div>
+          <div class="split-note">The real Streamlit page validates rows, previews data, and warns before insertion.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Import Income CSV</div>
+          <div class="card-subtitle">Income import with GBP conversion support</div>
+          <div class="fake-textarea">Expected columns:
+
+income_date
+description
+source
+currency
+gross_amount
+gross_amount_gbp
+fx_rate_to_gbp
+is_taxable
+payment_account
+notes</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="section-export">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Export</div>
+          <div class="card-subtitle">Expense CSV backup</div>
+          <div class="form-grid">
+            <div class="field"><label>From date</label><div class="fake-input">2026-04-06</div></div>
+            <div class="field"><label>To date</label><div class="fake-input">2027-04-05</div></div>
+            <div class="field"><label>Category filter</label><div class="fake-select">All categories</div></div>
+            <div class="field"><label>Format</label><div class="fake-select">CSV</div></div>
+          </div>
+          <div class="button-row"><div class="button-primary">Download expenses CSV</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Income Export</div>
+          <div class="card-subtitle">Income CSV backup</div>
+          <div class="form-grid">
+            <div class="field"><label>From date</label><div class="fake-input">2026-04-06</div></div>
+            <div class="field"><label>To date</label><div class="fake-input">2027-04-05</div></div>
+            <div class="field"><label>Format</label><div class="fake-select">CSV</div></div>
+            <div class="field"><label>Filename preview</label><div class="fake-input">income_export_2026-06-25.csv</div></div>
+          </div>
+          <div class="button-row"><div class="button-primary">Download income CSV</div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const meta = {
+  dashboard: {
+    kicker: "Overview",
+    title: "Dashboard",
+    desc: "Combined summary across income, expenses, tax, and current balances."
+  },
+  expenses: {
+    kicker: "Expenses",
+    title: "Expense Tracker",
+    desc: "Quick-add expenses, review recent activity, export backups, and run reports."
+  },
+  income: {
+    kicker: "Income",
+    title: "Income Tracking",
+    desc: "Track gross income separately while reading tax-paid history from expense records."
+  },
+  finance: {
+    kicker: "Finance",
+    title: "Finance Snapshot",
+    desc: "Current balances, transfers, and exchange history outside the expense ledger."
+  },
+  recurring: {
+    kicker: "Finance",
+    title: "Recurring",
+    desc: "Manage recurring expense templates and review upcoming committed spending."
+  },
+  reports: {
+    kicker: "Insights",
+    title: "Reports",
+    desc: "Review filtered spending totals, category breakdowns, and longer-term trends."
+  },
+  import: {
+    kicker: "Data",
+    title: "Import",
+    desc: "Validate and import expense or income CSV files into the tracker."
+  },
+  export: {
+    kicker: "Data",
+    title: "Export",
+    desc: "Download CSV backups of your expense and income history."
+  }
+};
+
+const navButtons = document.querySelectorAll(".nav-btn");
+const sections = document.querySelectorAll(".section");
+const heroKicker = document.getElementById("hero-kicker");
+const heroTitle = document.getElementById("hero-title");
+const heroDesc = document.getElementById("hero-desc");
+
+function showSection(target) {
+  navButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.target === target);
+  });
+
+  sections.forEach((section) => {
+    section.classList.toggle("active", section.id === "section-" + target);
+  });
+
+  heroKicker.textContent = meta[target].kicker;
+  heroTitle.textContent = meta[target].title;
+  heroDesc.textContent = meta[target].desc;
+}
+
+navButtons.forEach((button) => {
+  button.addEventListener("click", () => showSection(button.dataset.target));
+});
+</script>
+</body>
+</html>

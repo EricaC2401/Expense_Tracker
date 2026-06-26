@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expense Tracker</title>
+<link rel="stylesheet" href="/css/app.css?v=20260626-10">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+</head>
+<body>
+<div class="app">
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sb-logo">
+    <div class="sb-logo-icon"><i class="ti ti-receipt-2"></i></div>
+    <span class="sb-logo-text">Expenses</span>
+  </div>
+  <div class="sb-section">Main</div>
+  <div class="nav active" onclick="nav('dashboard',this)"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+  <div class="nav" onclick="nav('expenses',this)"><i class="ti ti-arrow-down-circle"></i>Expenses</div>
+  <div class="nav" onclick="nav('income',this)"><i class="ti ti-arrow-up-circle"></i>Income</div>
+  <div class="nav" onclick="nav('tax',this)"><i class="ti ti-receipt-tax"></i>Tax</div>
+  <div class="sb-section">Finance</div>
+  <div class="nav" onclick="nav('finance',this)"><i class="ti ti-building-bank"></i>Finance snapshot</div>
+  <div class="nav" onclick="nav('recurring',this)"><i class="ti ti-repeat"></i>Recurring</div>
+  <div class="sb-section">Insights</div>
+  <div class="nav" onclick="nav('reports',this)"><i class="ti ti-chart-pie"></i>Reports</div>
+  <div class="sb-section">Data</div>
+  <div class="nav" onclick="nav('import',this)"><i class="ti ti-upload"></i>Import</div>
+  <div class="nav" onclick="nav('export',this)"><i class="ti ti-download"></i>Export</div>
+  <div class="sb-spacer"></div>
+  <div class="sb-bottom"><i class="ti ti-settings"></i>Settings</div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <div class="topbar">
+      <div class="topbar-left">
+        <span class="page-title" id="page-title">Dashboard</span>
+        <div class="period-pills" id="period-pills">
+          <div class="pill active" onclick="setPeriod(this,'Month')">Month</div>
+          <div class="pill" onclick="setPeriod(this,'Financial year')">Financial year</div>
+          <div class="pill" onclick="setPeriod(this,'Calendar year')">Calendar year</div>
+          <div class="pill" onclick="setPeriod(this,'Custom')">Custom</div>
+        </div>
+        <div class="period-selector-wrap" id="period-selector-wrap">
+          <select id="period-selector" class="period-selector" aria-label="Select dashboard period"></select>
+        </div>
+        <div class="custom-period-wrap" id="custom-period-wrap">
+          <input type="date" id="custom-start-date" class="custom-date-input" aria-label="Custom start date">
+          <span class="custom-period-sep">to</span>
+          <input type="date" id="custom-end-date" class="custom-date-input" aria-label="Custom end date">
+        </div>
+      </div>
+    <div class="topbar-right">
+      <span class="period-hint" id="period-hint"></span>
+      <button class="btn-primary" id="top-btn" style="display:flex"><i class="ti ti-plus"></i><span id="top-btn-label">Add expense</span></button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ══ DASHBOARD ══ -->
+    <div class="section active" id="sec-dashboard">
+      <!-- Row 1: 4 metric cards -->
+      <div class="metrics" id="dashboard-metrics-row1">
+        <div class="mc"><div class="mc-label">Gross income</div><div class="mc-value pos" id="mc-income">—</div><div class="mc-sub" id="mc-income-sub">Loading…</div></div>
+        <div class="mc"><div class="mc-label">Tax</div><div class="mc-value" id="mc-tax">—</div><div class="mc-sub" id="mc-tax-sub"></div></div>
+        <div class="mc"><div class="mc-label">Taxable expense</div><div class="mc-value neg" id="mc-taxable-exp">—</div><div class="mc-sub" id="mc-taxable-exp-sub"></div></div>
+        <div class="mc"><div class="mc-label">Net Cash Inflow / Outflow</div><div class="mc-value pos" id="mc-cashflow">—</div><div class="mc-sub" id="mc-cashflow-sub"></div></div>
+      </div>
+
+      <!-- Row 2: 4 metric cards -->
+      <div class="metrics" id="dashboard-metrics-row2">
+        <div class="mc"><div class="mc-label">Expense ex Tax (Used)</div><div class="mc-value neg" id="mc-exp-used">—</div><div class="mc-sub" id="mc-exp-used-sub"></div></div>
+        <div class="mc"><div class="mc-label">Expense ex Tax (Paid)</div><div class="mc-value neg" id="mc-exp-paid">—</div><div class="mc-sub" id="mc-exp-paid-sub"></div></div>
+        <div class="mc"><div class="mc-label">Saving (Used)</div><div class="mc-value" id="mc-sav-used">—</div><div class="mc-sub" id="mc-sav-used-sub"></div></div>
+        <div class="mc"><div class="mc-label">Saving (Paid)</div><div class="mc-value" id="mc-sav-paid">—</div><div class="mc-sub" id="mc-sav-paid-sub"></div></div>
+      </div>
+
+      <!-- Expenses chart -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <div class="card-title" style="margin-bottom:0"><i class="ti ti-chart-bar"></i><span id="dashboard-chart-title">Expenses by month</span></div>
+        </div>
+        <div class="chart-wrap bar-wrap"><canvas id="dashboard-bar-chart"></canvas></div>
+      </div>
+
+      <div class="row3">
+        <div class="card" id="dashboard-top-cats">
+          <div class="card-title"><i class="ti ti-flame"></i>Top categories</div>
+          <div style="font-size:12px;color:#8492a6">Loading…</div>
+        </div>
+
+        <div class="card" id="dashboard-breakout">
+          <div class="card-title"><i class="ti ti-receipt"></i>Expense breakout</div>
+          <div style="font-size:12px;color:#8492a6">Loading…</div>
+        </div>
+
+        <div class="card" id="dashboard-finance">
+          <div class="card-title"><i class="ti ti-building-bank"></i>Finance snapshot<span class="ct-right"><span class="dot-green"></span>Latest</span></div>
+          <div style="font-size:12px;color:#8492a6">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ EXPENSES ══ -->
+    <div class="section" id="sec-expenses">
+      <div class="card">
+        <div class="card-title"><i class="ti ti-plus"></i>Add new expense</div>
+        <div class="category-manager-shell category-manager-shell-top">
+          <div class="category-manager-toolbar">
+            <div>
+              <div class="category-manager-title">Manage tags</div>
+              <div class="category-manager-subtitle">Add, rename, or remove categories within a group.</div>
+            </div>
+            <button class="btn-secondary" type="button" id="category-manager-toggle" onclick="toggleCategoryManager()">
+              <i class="ti ti-tags-off"></i>Hide categories
+            </button>
+          </div>
+          <div class="category-manager-panel" id="category-manager-panel">
+            <div class="category-manager-panel-head">
+              <div>
+                <div class="category-manager-panel-title">Category manager</div>
+                <div class="category-manager-panel-subtitle">Choose a group, edit one category, and preview the tag styles.</div>
+              </div>
+              <button class="btn-ghost" type="button" onclick="toggleCategoryManager(false)">
+                <i class="ti ti-x"></i>Close
+              </button>
+            </div>
+            <div class="category-manager-layout">
+              <div class="category-manager-editor">
+                <div class="category-manager-grid">
+                  <div class="form-group">
+                    <label>Group</label>
+                    <select id="category-manage-group"></select>
+                  </div>
+                  <div class="form-group">
+                    <label>Existing category</label>
+                    <select id="category-manage-select"></select>
+                  </div>
+                  <div class="form-group category-manager-name">
+                    <label>Category name</label>
+                    <input type="text" id="category-manage-name" placeholder="New or renamed category">
+                  </div>
+                </div>
+                <div class="form-status" id="category-manage-status"></div>
+                <div class="form-actions">
+                  <button class="btn-primary" type="button" onclick="createCategory()"><i class="ti ti-plus"></i>Add category</button>
+                  <button class="btn-secondary" type="button" onclick="renameCategory()">Rename</button>
+                  <button class="btn-secondary danger-soft" type="button" onclick="deleteCategory()">Delete</button>
+                </div>
+              </div>
+              <div class="category-manager-preview">
+                <div class="category-manager-preview-head">
+                  <span>Preview</span>
+                  <span id="category-manage-count">0 tags</span>
+                </div>
+                <div class="category-manager-preview-list" id="category-manage-preview"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-group"><label>Date</label><input type="date" id="exp-date"></div>
+          <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. Tesco weekly shop" id="exp-desc"></div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="exp-category"></select>
+            <div class="field-hint">Most-used categories for this group are listed first.</div>
+          </div>
+          <div class="form-group"><label>Group</label><select id="exp-group"></select></div>
+          <div class="form-group"><label>Amount (GBP)</label><input type="number" placeholder="0.00" step="0.01" id="exp-gbp"></div>
+          <div class="form-group"><label>Amount (HKD) — optional</label><input type="number" placeholder="0.00" step="0.01" id="exp-hkd"></div>
+          <div class="form-group"><label>Payment method</label><select id="exp-payment"><option value="">— No linked account</option><option>Monzo Current</option><option>HSBC HK GBP</option><option>HSBC HK HKD</option><option>HSBC UK Savings</option></select></div>
+          <div class="form-group"><label>Notes</label><input type="text" placeholder="Optional note" id="exp-notes"></div>
+        </div>
+        <div class="checkbox-row"><input type="checkbox" id="exp-tax"><span>Tax deductible</span></div>
+        <div class="form-status" id="expense-form-status"></div>
+        <div class="form-actions" style="margin-top:10px">
+          <button class="btn-primary" id="expense-save-btn" onclick="saveExpense()"><i class="ti ti-check"></i>Save expense</button>
+          <button class="btn-secondary" onclick="clearExpenseForm()">Clear</button>
+        </div>
+      </div>
+      <div class="card" style="padding:13px 17px">
+        <div class="filter-bar expense-filter-bar">
+          <select id="expense-period-filter">
+            <option>Month</option>
+            <option>Financial year</option>
+            <option>Calendar year</option>
+            <option>Custom</option>
+          </select>
+          <select id="expense-timeframe-filter" aria-label="Expense time frame"></select>
+          <div class="expense-custom-range" id="expense-custom-range">
+            <input type="date" id="expense-custom-start" aria-label="Expense custom start date">
+            <span>to</span>
+            <input type="date" id="expense-custom-end" aria-label="Expense custom end date">
+          </div>
+          <div class="search-wrap"><i class="ti ti-search"></i><input type="text" placeholder="Search expenses…" id="expense-search"></div>
+          <select id="expense-cat-filter"><option>All categories</option></select>
+          <select id="expense-group-filter"><option>All groups</option><option>Living</option><option>TaxPayment</option></select>
+          <select id="expense-payment-filter"><option>All payment methods</option><option>Monzo Current</option><option>HSBC HK GBP</option><option>HSBC HK HKD</option></select>
+          <button class="btn-secondary" onclick="loadExpenses()"><i class="ti ti-filter"></i>Filter</button>
+        </div>
+      </div>
+      <div class="card" style="padding:0 0 4px">
+        <div class="expense-table-summary">
+          <span id="expense-table-count">Showing 0 expense(s).</span>
+          <span id="expense-table-total">Total: GBP 0.00</span>
+        </div>
+        <div class="tbl-wrap expense-tbl-wrap">
+          <table class="data-tbl">
+            <thead><tr><th><input type="checkbox"></th><th>Date</th><th>Description</th><th>Category</th><th>Group</th><th>Amount (GBP)</th><th>Amount (HKD)</th><th>Tax ded.</th><th>Payment method</th><th>Notes</th><th>Actions</th></tr></thead>
+            <tbody id="expense-tbody"><tr><td colspan="11" style="text-align:center;color:#8492a6;padding:20px">Loading expenses…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ INCOME ══ -->
+    <div class="section" id="sec-income">
+      <div class="metrics metrics-3" id="income-metrics">
+        <div class="mc"><div class="mc-label">Gross income (GBP)</div><div class="mc-value pos" id="mc-gross-income">—</div><div class="mc-sub" id="mc-gross-income-sub">Loading…</div></div>
+        <div class="mc"><div class="mc-label">Tax due</div><div class="mc-value" id="mc-tax-due">—</div><div class="mc-sub">From tax-due entries</div></div>
+        <div class="mc"><div class="mc-label">After-tax income</div><div class="mc-value pos" id="mc-after-tax">—</div><div class="mc-sub">Gross minus tax due</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-plus"></i>Add income</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Date</label><input type="date" id="inc-date"></div>
+          <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. June salary" id="inc-desc"></div>
+          <div class="form-group"><label>Source</label><input type="text" placeholder="e.g. Employer" id="inc-source"></div>
+          <div class="form-group"><label>Currency</label><select id="inc-currency"><option>GBP</option><option>HKD</option><option>USD</option><option>EUR</option><option>CAD</option><option>JPY</option></select></div>
+          <div class="form-group"><label>Gross amount</label><input type="number" placeholder="0.00" step="0.01" id="inc-amount"></div>
+          <div class="form-group"><label>Gross amount (GBP) — optional</label><input type="number" placeholder="0.00" step="0.01" id="inc-gbp"></div>
+          <div class="form-group"><label>FX rate to GBP — optional</label><input type="number" placeholder="0.0000" step="0.0001" id="inc-fx"></div>
+          <div class="form-group"><label>Payment account</label><select id="inc-account"><option value="">— No linked account</option><option>Monzo Current</option><option>HSBC HK GBP</option><option>HSBC HK HKD</option></select></div>
+        </div>
+        <div class="checkbox-row"><input type="checkbox" checked id="inc-taxable"><span>Taxable income</span></div>
+        <div class="form-actions" style="margin-top:10px"><button class="btn-primary" onclick="saveIncome()"><i class="ti ti-check"></i>Save income</button><button class="btn-secondary" onclick="clearIncomeForm()">Clear</button></div>
+      </div>
+      <div class="card" style="padding:13px 17px">
+        <div class="filter-bar income-filter-bar">
+          <select id="income-period-filter">
+            <option>Month</option>
+            <option>Financial year</option>
+            <option>Calendar year</option>
+            <option>Custom</option>
+          </select>
+          <select id="income-timeframe-filter" aria-label="Income time frame"></select>
+          <div class="expense-custom-range" id="income-custom-range">
+            <input type="date" id="income-custom-start" aria-label="Income custom start date">
+            <span>to</span>
+            <input type="date" id="income-custom-end" aria-label="Income custom end date">
+          </div>
+          <div class="search-wrap"><i class="ti ti-search"></i><input type="text" placeholder="Search income…" id="income-search"></div>
+          <select id="income-source-filter"><option>All sources</option></select>
+          <select id="income-currency-filter"><option>All currencies</option></select>
+          <select id="income-account-filter"><option>All accounts</option></select>
+          <select id="income-taxable-filter">
+            <option>All income</option>
+            <option>Taxable only</option>
+            <option>Non-taxable only</option>
+          </select>
+          <button class="btn-secondary" onclick="loadIncome()"><i class="ti ti-filter"></i>Filter</button>
+        </div>
+      </div>
+      <div class="card" style="padding:0 0 4px">
+        <div class="expense-table-summary">
+          <span id="income-table-count">Showing 0 income item(s).</span>
+          <span id="income-table-total">Total: GBP 0.00</span>
+        </div>
+        <div class="tbl-wrap expense-tbl-wrap">
+          <table class="data-tbl">
+            <thead><tr><th><input type="checkbox"></th><th>Date</th><th>Description</th><th>Source</th><th>Currency</th><th>Gross amount</th><th>GBP equiv.</th><th>FX rate</th><th>Taxable</th><th>Account</th><th>Notes</th><th>Actions</th></tr></thead>
+            <tbody id="income-tbody"><tr><td colspan="12" style="text-align:center;color:#8492a6;padding:20px">Loading income…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ TAX ══ -->
+    <div class="section" id="sec-tax">
+      <div class="metrics metrics-3" id="tax-metrics">
+        <div class="mc"><div class="mc-label">Tax due (GBP)</div><div class="mc-value" id="mc-tax-total">—</div><div class="mc-sub" id="mc-tax-total-sub">Loading…</div></div>
+        <div class="mc"><div class="mc-label">Entries</div><div class="mc-value" id="mc-tax-count">—</div><div class="mc-sub">Selected period</div></div>
+        <div class="mc"><div class="mc-label">Average entry</div><div class="mc-value" id="mc-tax-average">—</div><div class="mc-sub">Selected period</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-plus"></i>Add tax due</div>
+        <div class="form-grid">
+          <div class="form-group"><label>Date</label><input type="date" id="tax-date"></div>
+          <div class="form-group"><label>Tax period</label><input type="text" placeholder="e.g. 2026/27" id="tax-period"></div>
+          <div class="form-group"><label>Amount (GBP)</label><input type="number" placeholder="0.00" step="0.01" id="tax-amount"></div>
+          <div class="form-group"><label>Notes</label><input type="text" placeholder="Optional note" id="tax-notes"></div>
+        </div>
+        <div class="form-status" id="tax-form-status"></div>
+        <div class="form-actions" style="margin-top:10px"><button class="btn-primary" id="tax-save-btn" onclick="saveTaxDue()"><i class="ti ti-check"></i>Save tax due</button><button class="btn-secondary" onclick="clearTaxForm()">Clear</button></div>
+      </div>
+      <div class="card" style="padding:13px 17px">
+        <div class="filter-bar income-filter-bar">
+          <select id="tax-period-filter">
+            <option>Month</option>
+            <option>Financial year</option>
+            <option>Calendar year</option>
+            <option>Custom</option>
+          </select>
+          <select id="tax-timeframe-filter" aria-label="Tax time frame"></select>
+          <div class="expense-custom-range" id="tax-custom-range">
+            <input type="date" id="tax-custom-start" aria-label="Tax custom start date">
+            <span>to</span>
+            <input type="date" id="tax-custom-end" aria-label="Tax custom end date">
+          </div>
+          <div class="search-wrap"><i class="ti ti-search"></i><input type="text" placeholder="Search tax due…" id="tax-search"></div>
+          <select id="tax-period-name-filter"><option>All periods</option></select>
+          <button class="btn-secondary" onclick="loadTaxDue()"><i class="ti ti-filter"></i>Filter</button>
+        </div>
+      </div>
+      <div class="card" style="padding:0 0 4px">
+        <div class="expense-table-summary">
+          <span id="tax-table-count">Showing 0 tax entry(s).</span>
+          <span id="tax-table-total">Total: GBP 0.00</span>
+        </div>
+        <div class="tbl-wrap expense-tbl-wrap">
+          <table class="data-tbl">
+            <thead><tr><th><input type="checkbox"></th><th>Date</th><th>Tax period</th><th>Amount (GBP)</th><th>Notes</th><th>Actions</th></tr></thead>
+            <tbody id="tax-tbody"><tr><td colspan="6" style="text-align:center;color:#8492a6;padding:20px">Loading tax due…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ FINANCE ══ -->
+    <div class="section" id="sec-finance">
+      <div class="metrics metrics-3" id="finance-metrics">
+        <div class="mc"><div class="mc-label">Total (GBP equiv.)</div><div class="mc-value pos" id="mc-fin-gbp">—</div><div class="mc-sub">Excl. Mum's Time D</div></div>
+        <div class="mc"><div class="mc-label">Total (HKD equiv.)</div><div class="mc-value" id="mc-fin-hkd">—</div><div class="mc-sub">Excl. Mum's Time D</div></div>
+        <div class="mc"><div class="mc-label">Accounts tracked</div><div class="mc-value" id="mc-fin-count">—</div><div class="mc-sub" id="mc-fin-count-sub"></div></div>
+      </div>
+      <div class="row2">
+        <div class="card" id="finance-balances">
+          <div class="card-title"><i class="ti ti-building-bank"></i>Current balances<span class="ct-right"><span class="dot-green"></span>Latest</span></div>
+          <div style="font-size:12px;color:#8492a6">Loading…</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-plus"></i>Update snapshot</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Snapshot date</label><input type="date" id="fin-date"></div>
+            <div class="form-group"><label>Institution</label><input type="text" placeholder="e.g. Monzo" id="fin-inst"></div>
+            <div class="form-group"><label>Account</label><input type="text" placeholder="e.g. Current" id="fin-acct"></div>
+            <div class="form-group"><label>Currency</label><select id="fin-currency"><option>GBP</option><option>HKD</option><option>USD</option><option>EUR</option></select></div>
+            <div class="form-group"><label>Balance</label><input type="number" placeholder="0.00" step="0.01" id="fin-balance"></div>
+            <div class="form-group"><label>Account type — optional</label><input type="text" placeholder="e.g. Savings" id="fin-type"></div>
+          </div>
+          <div class="form-actions" style="margin-top:10px"><button class="btn-primary" onclick="saveFinanceSnapshot()"><i class="ti ti-check"></i>Save entry</button><button class="btn-secondary" onclick="clearFinanceForm()">Clear</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ RECURRING ══ -->
+    <div class="section" id="sec-recurring">
+      <div class="metrics metrics-3" id="recurring-metrics">
+        <div class="mc"><div class="mc-label">Monthly committed</div><div class="mc-value neg" id="mc-rec-expense">—</div><div class="mc-sub">Active recurring expenses</div></div>
+        <div class="mc"><div class="mc-label">Monthly income</div><div class="mc-value pos" id="mc-rec-income">—</div><div class="mc-sub">Active recurring income</div></div>
+        <div class="mc"><div class="mc-label">Active templates</div><div class="mc-value" id="mc-rec-count">—</div><div class="mc-sub" id="mc-rec-count-sub"></div></div>
+      </div>
+      <div class="row2">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-arrow-down-circle"></i>Recurring expenses</div>
+          <div class="rec-grid" id="rec-expense-grid">
+            <div style="grid-column:1/-1;font-size:12px;color:#8492a6">Loading…</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-arrow-up-circle"></i>Recurring income</div>
+          <div class="rec-grid" id="rec-income-grid">
+            <div style="grid-column:1/-1;font-size:12px;color:#8492a6">Loading…</div>
+          </div>
+          <hr style="border:none;border-top:1px solid #e8ecf4;margin:16px 0 14px">
+          <div class="card-title" style="margin-bottom:12px"><i class="ti ti-plus"></i>New recurring template</div>
+          <div class="form-grid">
+            <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. Rent" id="rec-desc"></div>
+            <div class="form-group"><label>Category</label><select id="rec-category"></select></div>
+            <div class="form-group"><label>Amount (GBP)</label><input type="number" placeholder="0.00" id="rec-amount"></div>
+            <div class="form-group"><label>Day of month</label><input type="number" placeholder="1" min="1" max="31" id="rec-day"></div>
+            <div class="form-group"><label>Start date</label><input type="date" id="rec-start"></div>
+            <div class="form-group"><label>End date — optional</label><input type="date" id="rec-end"></div>
+          </div>
+          <div class="form-actions" style="margin-top:10px"><button class="btn-primary" onclick="saveRecurring()"><i class="ti ti-check"></i>Create template</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ REPORTS ══ -->
+    <div class="section" id="sec-reports">
+      <div class="card" style="padding:13px 17px">
+        <div class="filter-bar">
+          <select id="report-period-filter"><option>Financial year</option><option>Calendar year</option><option>Month</option></select>
+          <select id="report-group-filter"><option>All groups</option><option>Living</option><option>TaxPayment</option></select>
+          <select id="report-cat-filter"><option>All categories</option></select>
+          <button class="btn-secondary" onclick="loadReports()"><i class="ti ti-refresh"></i>Refresh</button>
+        </div>
+      </div>
+      <div class="metrics metrics-3" id="report-metrics">
+        <div class="mc"><div class="mc-label">Total (GBP)</div><div class="mc-value" id="mc-rpt-gbp">—</div><div class="mc-sub">Filtered period</div></div>
+        <div class="mc"><div class="mc-label">Total (HKD)</div><div class="mc-value" id="mc-rpt-hkd">—</div><div class="mc-sub">HKD expenses only</div></div>
+        <div class="mc"><div class="mc-label">Transactions</div><div class="mc-value" id="mc-rpt-count">—</div><div class="mc-sub">In date range</div></div>
+      </div>
+
+      <!-- Category breakdown -->
+      <div class="report-block">
+        <div class="report-block-title">Spending by category</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="switchCatType('bar',this)">Bar</button>
+            <button class="seg-btn" onclick="switchCatType('pie',this)">Pie</button>
+          </div>
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="setCurrency('GBP',this)">GBP</button>
+            <button class="seg-btn" onclick="setCurrency('HKD',this)">HKD</button>
+          </div>
+        </div>
+        <div id="cat-bar-wrap" class="chart-wrap hbar-wrap"><canvas id="hbar"></canvas></div>
+        <div id="cat-pie-wrap" class="chart-wrap" style="height:260px;display:none"><canvas id="cat-pie"></canvas></div>
+        <div style="overflow-x:auto;margin-top:16px">
+          <table class="cat-table"><thead><tr><th>Category</th><th>Amount (GBP)</th><th>Percentage</th></tr></thead><tbody id="cat-table-body"></tbody></table>
+        </div>
+      </div>
+
+      <!-- Living classification -->
+      <div class="report-block">
+        <div class="report-block-title">Living classification</div>
+        <div style="display:flex;align-items:center;margin-bottom:14px">
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="switchLivType('bar',this)">Bar</button>
+            <button class="seg-btn" onclick="switchLivType('pie',this)">Pie</button>
+          </div>
+        </div>
+        <div id="liv-bar-wrap" class="chart-wrap hbar-wrap"><canvas id="living-bar"></canvas></div>
+        <div id="liv-pie-wrap" class="chart-wrap" style="height:260px;display:none"><canvas id="liv-pie"></canvas></div>
+        <div style="overflow-x:auto;margin-top:16px">
+          <table class="cat-table"><thead><tr><th>Category</th><th>Amount (GBP)</th><th>Percentage</th></tr></thead><tbody id="liv-table-body"></tbody></table>
+        </div>
+      </div>
+
+      <!-- Monthly trend -->
+      <div class="report-block">
+        <div class="report-block-title">Monthly trend</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="switchTrend('line',this)">Line</button>
+            <button class="seg-btn" onclick="switchTrend('bar',this)">Bar</button>
+          </div>
+          <div id="trend-legend" class="legend-row" style="margin-bottom:0"></div>
+        </div>
+        <div class="chart-wrap" style="height:240px"><canvas id="trend"></canvas></div>
+        <p id="trend-hint" style="font-size:11px;color:#8492a6;margin-top:8px">Monthly expense total over time.</p>
+      </div>
+
+      <!-- Largest expenses -->
+      <div class="report-block">
+        <div class="report-block-title">Largest expenses</div>
+        <div class="tbl-wrap">
+          <table class="data-tbl">
+            <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Group</th><th>Amount (GBP)</th><th>Amount (HKD)</th></tr></thead>
+            <tbody id="largest-tbody"><tr><td colspan="6" style="text-align:center;color:#8492a6;padding:12px">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ IMPORT ══ -->
+    <div class="section" id="sec-import">
+      <div class="row2">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-upload"></i>Import expenses from CSV</div>
+          <div class="upload-zone" onclick="document.getElementById('import-expense-file').click()">
+            <i class="ti ti-file-text"></i>
+            <div class="upload-title">Drop a CSV file here, or click to browse</div>
+            <div class="upload-hint">Expects: date, description, category, group, amount_gbp, amount_hkd, tax_deductable, payment_method, notes</div>
+          </div>
+          <input type="file" id="import-expense-file" accept=".csv" style="display:none">
+          <div class="fmt-hints"><strong>Format requirements</strong>· Date: YYYY-MM-DD or "May 2, 2026"<br>· amount_gbp required; amount_hkd optional<br>· tax_deductable: true/false or yes/no<br>· Duplicates are automatically skipped</div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-upload"></i>Import income from CSV</div>
+          <div class="upload-zone" onclick="document.getElementById('import-income-file').click()">
+            <i class="ti ti-file-text"></i>
+            <div class="upload-title">Drop a CSV file here, or click to browse</div>
+            <div class="upload-hint">Expects: income_date, description, source, currency, gross_amount, gross_amount_gbp, fx_rate_to_gbp, is_taxable, payment_account, notes</div>
+          </div>
+          <input type="file" id="import-income-file" accept=".csv" style="display:none">
+          <div class="fmt-hints"><strong>Format requirements</strong>· Multi-currency: include fx_rate_to_gbp or gross_amount_gbp<br>· is_taxable: true/false<br>· HMRC monthly rates auto-fetched for HKD conversion<br>· Duplicates are automatically skipped</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ EXPORT ══ -->
+    <div class="section" id="sec-export">
+      <div class="row2">
+        <div class="card">
+          <div class="card-title"><i class="ti ti-download"></i>Export expenses</div>
+          <div class="form-grid">
+            <div class="form-group"><label>From date</label><input type="date" id="export-from"></div>
+            <div class="form-group"><label>To date</label><input type="date" id="export-to"></div>
+            <div class="form-group"><label>Category filter</label><select id="export-cat"><option>All categories</option></select></div>
+            <div class="form-group"><label>Format</label><select><option>CSV</option></select></div>
+          </div>
+          <div class="form-actions" style="margin-top:12px"><button class="btn-primary" onclick="downloadExpenseCSV()"><i class="ti ti-download"></i>Download expenses CSV</button></div>
+          <div class="filename-box" id="export-filename"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><i class="ti ti-download"></i>Export income</div>
+          <div class="form-grid">
+            <div class="form-group"><label>From date</label><input type="date" id="export-income-from"></div>
+            <div class="form-group"><label>To date</label><input type="date" id="export-income-to"></div>
+            <div class="form-group"><label>Format</label><select><option>CSV</option></select></div>
+          </div>
+          <div class="form-actions" style="margin-top:12px"><button class="btn-primary" onclick="downloadIncomeCSV()"><i class="ti ti-download"></i>Download income CSV</button></div>
+          <div class="filename-box" id="export-income-filename"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app -->
+
+<script src="/js/api.js?v=20260626-10"></script>
+<script src="/js/utils.js?v=20260626-10"></script>
+<script src="/js/dashboard.js?v=20260626-10"></script>
+<script src="/js/app.js?v=20260626-10"></script>
+</body>
+</html>

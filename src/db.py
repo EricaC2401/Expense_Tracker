@@ -7,6 +7,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
+import os
+
 import psycopg2
 from psycopg2.errors import UndefinedColumn, UndefinedTable
 from psycopg2.extensions import (
@@ -15,7 +17,6 @@ from psycopg2.extensions import (
 )
 from psycopg2.extras import RealDictCursor
 from psycopg2 import InterfaceError, OperationalError
-import streamlit as st
 
 try:
     from src.models import (
@@ -51,6 +52,18 @@ class DatabaseSchemaError(RuntimeError):
 
 class FinanceLinkError(RuntimeError):
     """Raised when a linked finance row cannot be adjusted safely."""
+
+
+@dataclass(frozen=True)
+class StoredCategoryCatalogEntry:
+    """Category-catalog row returned from the database."""
+
+    id: int
+    category: str
+    group_name: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -355,12 +368,25 @@ def _adjust_finance_snapshot_balance(
 
 
 def _get_supabase_config() -> dict[str, Any]:
-    try:
-        cfg = st.secrets["supabase"]
-    except Exception as exc:  # pragma: no cover - depends on Streamlit runtime
-        raise DatabaseConnectionError(
-            "Supabase credentials are missing. Add them to .streamlit/secrets.toml."
-        ) from exc
+    env_host = os.environ.get("SUPABASE_HOST")
+    if env_host:
+        cfg = {
+            "host": env_host,
+            "port": int(os.environ.get("SUPABASE_PORT", "5432")),
+            "dbname": os.environ.get("SUPABASE_DBNAME", ""),
+            "user": os.environ.get("SUPABASE_USER", ""),
+            "password": os.environ.get("SUPABASE_PASSWORD", ""),
+            "sslmode": os.environ.get("SUPABASE_SSLMODE", "require"),
+        }
+    else:
+        try:
+            import streamlit as st
+            cfg = dict(st.secrets["supabase"])
+        except Exception as exc:
+            raise DatabaseConnectionError(
+                "Database credentials not found. Set SUPABASE_HOST env var "
+                "or add them to .streamlit/secrets.toml."
+            ) from exc
 
     required_keys = ("host", "port", "dbname", "user", "password")
     missing_keys = [key for key in required_keys if not cfg.get(key)]
@@ -394,11 +420,24 @@ def _create_connection() -> PGConnection:
         ) from exc
 
 
-@st.cache_resource
-def get_connection() -> PGConnection:
-    """Return a cached PostgreSQL connection for the current Streamlit session."""
+_cached_connection: PGConnection | None = None
 
-    return _create_connection()
+
+def _clear_connection_cache() -> None:
+    """Reset the module-level connection cache."""
+
+    global _cached_connection
+    _cached_connection = None
+
+
+def get_connection() -> PGConnection:
+    """Return a cached PostgreSQL connection."""
+
+    global _cached_connection
+    if _cached_connection is not None and _cached_connection.closed == 0:
+        return _cached_connection
+    _cached_connection = _create_connection()
+    return _cached_connection
 
 
 def ensure_connection() -> PGConnection:
@@ -406,7 +445,7 @@ def ensure_connection() -> PGConnection:
 
     conn = get_connection()
     if conn.closed != 0:
-        get_connection.clear()
+        _clear_connection_cache()
         return get_connection()
 
     _rollback_if_needed(conn)
@@ -424,7 +463,7 @@ def test_connection() -> bool:
             row = cur.fetchone()
     except (OperationalError, InterfaceError) as exc:
         _safe_rollback(conn)
-        get_connection.clear()
+        _clear_connection_cache()
         raise DatabaseConnectionError(
             "The Supabase connection was lost while running a test query."
         ) from exc
@@ -448,6 +487,17 @@ def _row_to_transaction(row: dict[str, Any]) -> StoredExpenseTransaction:
         updated_at=row["updated_at"],
         recurring_expense_id=row.get("recurring_expense_id"),
         generated_for_month=row.get("generated_for_month"),
+    )
+
+
+def _row_to_category_catalog_entry(row: dict[str, Any]) -> StoredCategoryCatalogEntry:
+    return StoredCategoryCatalogEntry(
+        id=row["id"],
+        category=row["category"],
+        group_name=row["group_name"],
+        is_active=row["is_active"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
 
 
@@ -572,7 +622,7 @@ def _run_with_reconnect(operation):
         ) from exc
     except (OperationalError, InterfaceError) as exc:
         _safe_rollback(get_connection())
-        get_connection.clear()
+        _clear_connection_cache()
         try:
             return operation(ensure_connection())
         except (OperationalError, InterfaceError) as retry_exc:
@@ -652,6 +702,137 @@ def insert_transaction(transaction: ExpenseTransaction) -> StoredExpenseTransact
             row = cur.fetchone()
         conn.commit()
         return _row_to_transaction(row)
+
+    return _run_with_reconnect(operation)
+
+
+def fetch_category_catalog(*, include_inactive: bool = False) -> list[StoredCategoryCatalogEntry]:
+    """Return category-catalog rows ordered by group and category."""
+
+    sql = """
+        select
+            id,
+            category,
+            group_name,
+            is_active,
+            created_at,
+            updated_at
+        from public.category_catalog
+        where (%s or is_active = true)
+        order by group_name asc, category asc;
+    """
+
+    def operation(conn: PGConnection) -> list[StoredCategoryCatalogEntry]:
+        with conn.cursor() as cur:
+            cur.execute(sql, (include_inactive,))
+            rows = cur.fetchall()
+        return [_row_to_category_catalog_entry(row) for row in rows]
+
+    return _run_with_reconnect(operation)
+
+
+def insert_category_catalog_entry(*, category: str, group_name: str) -> StoredCategoryCatalogEntry:
+    """Insert one category-catalog row and return it."""
+
+    sql = """
+        insert into public.category_catalog (
+            category,
+            group_name
+        )
+        values (%s, %s)
+        returning
+            id,
+            category,
+            group_name,
+            is_active,
+            created_at,
+            updated_at;
+    """
+
+    def operation(conn: PGConnection) -> StoredCategoryCatalogEntry:
+        with conn.cursor() as cur:
+            cur.execute(sql, (category, group_name))
+            row = cur.fetchone()
+        conn.commit()
+        return _row_to_category_catalog_entry(row)
+
+    return _run_with_reconnect(operation)
+
+
+def update_category_catalog_entry(*, category_id: int, category: str) -> StoredCategoryCatalogEntry | None:
+    """Rename one category-catalog row and update matching expense templates and rows."""
+
+    fetch_sql = """
+        select
+            id,
+            category,
+            group_name,
+            is_active,
+            created_at,
+            updated_at
+        from public.category_catalog
+        where id = %s;
+    """
+    update_catalog_sql = """
+        update public.category_catalog
+        set category = %s
+        where id = %s
+        returning
+            id,
+            category,
+            group_name,
+            is_active,
+            created_at,
+            updated_at;
+    """
+    update_transactions_sql = """
+        update public.transactions
+        set category = %s
+        where category = %s
+          and group_name = %s;
+    """
+    update_recurring_sql = """
+        update public.recurring_expenses
+        set category = %s
+        where category = %s;
+    """
+
+    def operation(conn: PGConnection) -> StoredCategoryCatalogEntry | None:
+        with conn.cursor() as cur:
+            cur.execute(fetch_sql, (category_id,))
+            original_row = cur.fetchone()
+            if original_row is None:
+                conn.rollback()
+                return None
+            original_entry = _row_to_category_catalog_entry(original_row)
+            cur.execute(update_catalog_sql, (category, category_id))
+            updated_row = cur.fetchone()
+            cur.execute(
+                update_transactions_sql,
+                (category, original_entry.category, original_entry.group_name),
+            )
+            if original_entry.group_name.strip().lower() == "living":
+                cur.execute(update_recurring_sql, (category, original_entry.category))
+        conn.commit()
+        return _row_to_category_catalog_entry(updated_row)
+
+    return _run_with_reconnect(operation)
+
+
+def delete_category_catalog_entry(*, category_id: int) -> bool:
+    """Delete one category-catalog row."""
+
+    sql = """
+        delete from public.category_catalog
+        where id = %s;
+    """
+
+    def operation(conn: PGConnection) -> bool:
+        with conn.cursor() as cur:
+            cur.execute(sql, (category_id,))
+            deleted = cur.rowcount > 0
+        conn.commit()
+        return deleted
 
     return _run_with_reconnect(operation)
 

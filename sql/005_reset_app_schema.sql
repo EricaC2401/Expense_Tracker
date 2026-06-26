@@ -4,12 +4,14 @@
 --   - public.transactions
 --   - public.recurring_expenses
 --   - public.finance_snapshot_entries
+--   - public.category_catalog
 
 begin;
 
 drop table if exists public.transactions cascade;
 drop table if exists public.recurring_expenses cascade;
 drop table if exists public.finance_snapshot_entries cascade;
+drop table if exists public.category_catalog cascade;
 drop function if exists public.set_updated_at() cascade;
 
 create or replace function public.set_updated_at()
@@ -71,6 +73,16 @@ create table public.finance_snapshot_entries (
     updated_at timestamptz not null default now()
 );
 
+create table public.category_catalog (
+    id bigserial primary key,
+    category text not null,
+    group_name text not null,
+    is_active boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    constraint category_catalog_group_category_unique unique (category, group_name)
+);
+
 drop trigger if exists trg_recurring_expenses_updated_at on public.recurring_expenses;
 create trigger trg_recurring_expenses_updated_at
 before update on public.recurring_expenses
@@ -89,8 +101,15 @@ before update on public.finance_snapshot_entries
 for each row
 execute function public.set_updated_at();
 
+drop trigger if exists trg_category_catalog_updated_at on public.category_catalog;
+create trigger trg_category_catalog_updated_at
+before update on public.category_catalog
+for each row
+execute function public.set_updated_at();
+
 alter table public.transactions enable row level security;
 alter table public.recurring_expenses enable row level security;
 alter table public.finance_snapshot_entries enable row level security;
+alter table public.category_catalog enable row level security;
 
 commit;

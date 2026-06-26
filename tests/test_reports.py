@@ -1309,6 +1309,28 @@ def test_build_overall_dashboard_summary_calculates_dashboard_metrics() -> None:
     ]
 
 
+def test_build_overall_dashboard_summary_accepts_lowercase_financial_year_mode() -> None:
+    summary = build_overall_dashboard_summary(
+        period_mode="Financial year",
+        start_date=date(2026, 4, 6),
+        end_date=date(2026, 6, 25),
+        incomes=[],
+        tax_due_entries=[
+            make_tax_due(
+                entry_id=21,
+                tax_date=date(2026, 4, 6),
+                tax_period="2026/27",
+                amount_gbp="50.00",
+            ),
+        ],
+        tax_payments=[],
+        expenses=[],
+        finance_entries=[],
+    )
+
+    assert summary.total_tax_amount_gbp == Decimal("50.00")
+
+
 def test_build_overall_dashboard_summary_uses_tax_paid_for_calendar_year() -> None:
     tax_payment = StoredExpenseTransaction(
         id=11,

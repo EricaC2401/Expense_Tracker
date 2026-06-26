@@ -449,6 +449,8 @@ def build_overall_dashboard_summary(
 ) -> OverallDashboardSummary:
     """Return one combined dashboard summary for the selected period."""
 
+    normalized_period_mode = " ".join(str(period_mode).split()).casefold()
+
     income_summary = build_income_report_summary(
         incomes,
         tax_due_entries,
@@ -500,7 +502,7 @@ def build_overall_dashboard_summary(
     net_saving_gbp = gross_income_gbp - expense_gbp
     annualised_monthly_expense_gbp: Decimal | None = None
     annualised_monthly_net_saving_gbp: Decimal | None = None
-    if period_mode == "Month":
+    if normalized_period_mode == "month":
         fy_expenses = expenses if financial_year_expenses is None else financial_year_expenses
         fy_non_tax_expenses = [
             transaction
@@ -536,9 +538,9 @@ def build_overall_dashboard_summary(
             rounding=ROUND_HALF_UP,
         )
         annualised_monthly_net_saving_gbp = gross_income_gbp - annualised_monthly_expense_gbp
-    if period_mode == "Financial Year":
+    if normalized_period_mode == "financial year":
         total_tax_amount_gbp = income_summary.tax_due_gbp
-    elif period_mode == "Month":
+    elif normalized_period_mode == "month":
         total_tax_amount_gbp = (income_summary.tax_due_gbp / Decimal("12")).quantize(
             Decimal("0.01"),
             rounding=ROUND_HALF_UP,
