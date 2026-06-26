@@ -433,6 +433,53 @@
           </table>
         </div>
       </div>
+      <div class="card">
+        <div class="card-title"><i class="ti ti-arrows-exchange"></i>Transfers and exchange records</div>
+        <div class="seg-control" id="xfer-type-control" style="margin-bottom:14px">
+          <button class="seg-btn active" onclick="switchTransferType('conversion', this)">Currency conversion</button>
+          <button class="seg-btn" onclick="switchTransferType('transfer', this)">Bank transfer</button>
+        </div>
+        <div id="xfer-conversion-form">
+          <div class="form-grid">
+            <div class="form-group" style="grid-column:1 / -1"><label>Exchange date</label><input type="date" id="xfer-date"></div>
+            <div class="form-group"><label>Paid from</label><select id="xfer-from-account"></select></div>
+            <div class="form-group"><label>Received into</label><select id="xfer-to-account"></select></div>
+            <div class="form-group"><label>Paid amount</label><input type="number" placeholder="e.g. 7800.00" step="0.01" id="xfer-from-amount"></div>
+            <div class="form-group"><label>Received amount</label><input type="number" placeholder="e.g. 765.40" step="0.01" id="xfer-to-amount"></div>
+            <div class="form-group"><label>Fee (GBP) optional</label><input type="number" placeholder="e.g. 5.00" step="0.01" id="xfer-fee"></div>
+            <div class="form-group"><label>Notes (optional)</label><input type="text" placeholder="e.g. HSBC HK to Monzo" id="xfer-notes"></div>
+          </div>
+        </div>
+        <div id="xfer-transfer-form" style="display:none">
+          <div class="form-grid">
+            <div class="form-group" style="grid-column:1 / -1"><label>Transfer date</label><input type="date" id="xfer-t-date"></div>
+            <div class="form-group"><label>From account</label><select id="xfer-t-from-account"></select></div>
+            <div class="form-group"><label>To account</label><select id="xfer-t-to-account"></select></div>
+            <div class="form-group"><label>Amount</label><input type="number" placeholder="e.g. 1000.00" step="0.01" id="xfer-t-amount"></div>
+            <div class="form-group"><label>Notes (optional)</label><input type="text" placeholder="e.g. Savings to Current" id="xfer-t-notes"></div>
+          </div>
+        </div>
+        <div class="form-status" id="xfer-form-status"></div>
+        <div id="xfer-rate-preview" style="font-size:12px;color:#8492a6;margin-top:6px"></div>
+        <div class="form-actions" style="margin-top:10px">
+          <button class="btn-primary" id="xfer-save-btn" onclick="saveTransferOrExchange()"><i class="ti ti-check"></i>Save transfer or exchange</button>
+          <button class="btn-secondary" onclick="clearTransferForm()">Clear</button>
+        </div>
+      </div>
+      <div class="card" style="padding:0 0 4px">
+        <div class="expense-table-summary">
+          <span>Exchange & transfer history</span>
+          <span id="xfer-history-count"></span>
+        </div>
+        <div class="tbl-wrap expense-tbl-wrap">
+          <table class="data-tbl">
+            <thead><tr>
+              <th>Date</th><th>From</th><th>Paid</th><th>To</th><th>Received</th><th>Rate</th><th>Fee</th><th>Notes</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="xfer-history-tbody"><tr><td colspan="9" style="text-align:center;color:#8492a6;padding:20px">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ══ RECURRING ══ -->

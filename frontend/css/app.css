@@ -125,6 +125,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 .finance-summary-box table.data-tbl td:last-child,
 .finance-summary-box table.data-tbl th:last-child{text-align:left;font-variant-numeric:tabular-nums}
 .finance-summary-bottom{grid-column:1 / -1}
+#sec-finance .expense-tbl-wrap{max-height:280px}
 
 /* ── BREAKOUT ── */
 .bk-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f8;font-size:12px}
@@ -141,7 +142,7 @@ html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sa
 table.data-tbl{width:100%;border-collapse:collapse;font-size:12px}
 table.data-tbl thead tr{border-bottom:1px solid #e8ecf4;background:#f8fafc}
 table.data-tbl th{padding:8px 10px;text-align:left;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#8492a6;white-space:nowrap}
-table.data-tbl td{padding:8px 10px;color:#1a1f2e;border-bottom:1px solid #f3f4f8;vertical-align:middle}
+table.data-tbl td{padding:10px 10px;color:#1a1f2e;border-bottom:1px solid #f3f4f8;vertical-align:middle;line-height:1.5}
 table.data-tbl tr:last-child td{border-bottom:none}
 table.data-tbl tr:hover td{background:#fafbfd}
 .expense-tbl-wrap table.data-tbl thead th{position:sticky;top:0;z-index:1;background:#f8fafc}

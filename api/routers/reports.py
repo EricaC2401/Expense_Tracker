@@ -67,6 +67,22 @@ def _filter_tax_payments(transactions):
     ]
 
 
+def _filter_report_transactions(transactions, *, start_date, end_date, group=None, category=None):
+    filtered = filter_transactions_by_date_range(
+        transactions,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    results = []
+    for transaction in filtered:
+        if group and group != "All groups" and transaction.group_name != group:
+            continue
+        if category and category != "All categories" and transaction.category != category:
+            continue
+        results.append(transaction)
+    return results
+
+
 def _is_tax_payment_group(group_name: str) -> bool:
     return " ".join(str(group_name).strip().split()).lower() in {"taxpayment", "tax payment"}
 
@@ -197,6 +213,44 @@ def _build_dashboard_finance_payload() -> dict:
             "total_hkd_including_mums_time_d": _dec(bicurrency.total_hkd_including_mums_time_d),
             "rate_gbp_hkd": f"{bicurrency.rate_gbp_hkd:,.4f}",
         },
+    }
+
+
+@router.get("/summary")
+def reports_summary(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    group: str | None = Query(None),
+    category: str | None = Query(None),
+):
+    transactions = fetch_transactions()
+    filtered = _filter_report_transactions(
+        transactions,
+        start_date=start_date,
+        end_date=end_date,
+        group=group,
+        category=category,
+    )
+    month_rates = _get_expense_month_rates(filtered)
+    total_gbp = sum(
+        (
+            build_expense_transaction_total_gbp(transaction, month_rates_by_month=month_rates or None)
+            for transaction in filtered
+        ),
+        Decimal("0.00"),
+    )
+    total_hkd = sum(
+        (
+            Decimal("0.00") if transaction.amount_hkd is None else Decimal(transaction.amount_hkd)
+            for transaction in filtered
+        ),
+        Decimal("0.00"),
+    )
+
+    return {
+        "total_gbp": _dec(total_gbp),
+        "total_hkd": _dec(total_hkd),
+        "transaction_count": len(filtered),
     }
 
 
@@ -372,12 +426,19 @@ def dashboard_finance_report():
 def category_spending(
     start_date: date = Query(...),
     end_date: date = Query(...),
+    group: str | None = Query(None),
+    category: str | None = Query(None),
 ):
     transactions = fetch_transactions()
-    filtered = filter_transactions_by_date_range(
-        transactions, start_date=start_date, end_date=end_date,
+    filtered = _filter_report_transactions(
+        transactions,
+        start_date=start_date,
+        end_date=end_date,
+        group=group,
+        category=category,
     )
-    rows = build_category_spending_report(filtered)
+    month_rates = _get_expense_month_rates(filtered)
+    rows = build_category_spending_report(filtered, month_rates_by_month=month_rates or None)
     return [
         {"category": str(r["category"]), "amount_gbp": _dec(r["amount_gbp"]), "amount_hkd": _dec(r["amount_hkd"])}
         for r in rows
@@ -388,10 +449,16 @@ def category_spending(
 def living_classification(
     start_date: date = Query(...),
     end_date: date = Query(...),
+    group: str | None = Query(None),
+    category: str | None = Query(None),
 ):
     transactions = fetch_transactions()
-    filtered = filter_transactions_by_date_range(
-        transactions, start_date=start_date, end_date=end_date,
+    filtered = _filter_report_transactions(
+        transactions,
+        start_date=start_date,
+        end_date=end_date,
+        group=group,
+        category=category,
     )
     rows = build_living_classification_report(filtered)
     return [
@@ -404,12 +471,19 @@ def living_classification(
 def monthly_trend(
     start_date: date = Query(...),
     end_date: date = Query(...),
+    group: str | None = Query(None),
+    category: str | None = Query(None),
 ):
     transactions = fetch_transactions()
-    filtered = filter_transactions_by_date_range(
-        transactions, start_date=start_date, end_date=end_date,
+    filtered = _filter_report_transactions(
+        transactions,
+        start_date=start_date,
+        end_date=end_date,
+        group=group,
+        category=category,
     )
-    rows = build_monthly_trend_report(filtered)
+    month_rates = _get_expense_month_rates(filtered)
+    rows = build_monthly_trend_report(filtered, month_rates_by_month=month_rates or None)
     return [
         {"month": str(r["month"]), "amount_gbp": _dec(r["amount_gbp"]), "amount_hkd": _dec(r["amount_hkd"])}
         for r in rows
@@ -420,11 +494,17 @@ def monthly_trend(
 def largest_expenses(
     start_date: date = Query(...),
     end_date: date = Query(...),
+    group: str | None = Query(None),
+    category: str | None = Query(None),
     limit: int = Query(5),
 ):
     transactions = fetch_transactions()
-    filtered = filter_transactions_by_date_range(
-        transactions, start_date=start_date, end_date=end_date,
+    filtered = _filter_report_transactions(
+        transactions,
+        start_date=start_date,
+        end_date=end_date,
+        group=group,
+        category=category,
     )
     rows = build_largest_expenses_report(filtered, limit=limit)
     return [
