@@ -180,12 +180,11 @@ function renderDashboardOverviewChart(metrics) {
   rows.forEach((row) => {
     const isNegative = row.amount < 0;
     const sideMax = isNegative ? maxNegative : maxPositive;
-    const sideWidth = isNegative ? zeroPosition : (100 - zeroPosition);
     const ratio = sideMax > 0 ? Math.abs(row.amount) / sideMax : 0;
-    const width = ratio > 0 ? Math.max((ratio * sideWidth), 2) : 0;
+    const width = ratio > 0 ? Math.max((ratio * 100), 2) : 0;
     const lightColor = isNegative && row.negativeLightColor ? row.negativeLightColor : row.lightColor || row.positiveLightColor;
     const darkColor = isNegative && row.negativeDarkColor ? row.negativeDarkColor : row.darkColor || row.positiveDarkColor;
-    const fillColor = blendHex(lightColor, darkColor, ratio);
+    const fillColor = blendHex(lightColor, darkColor, totalSpan > 0 ? Math.abs(row.amount) / totalSpan : 0);
     const fill = width > 0
       ? `<div class="dashboard-compare-fill" style="width:${width}%;background:${fillColor}"></div>`
       : '';
