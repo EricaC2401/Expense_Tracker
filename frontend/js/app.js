@@ -1050,6 +1050,10 @@ function renderExpensesTable(transactions) {
     : (name => name || '—');
   currentExpenseRows = transactions;
 
+  const totalInGbp = transactions.reduce(
+    (sum, transaction) => sum + (parseFloat(transaction.total_gbp || transaction.amount_gbp) || 0),
+    0,
+  );
   const totalGbp = transactions.reduce(
     (sum, transaction) => sum + (parseFloat(transaction.amount_gbp) || 0),
     0,
@@ -1060,6 +1064,7 @@ function renderExpensesTable(transactions) {
   );
   updateExpenseTableSummary({
     count: transactions.length,
+    totalInGbp,
     totalGbp,
     totalHkd,
   });
@@ -1098,17 +1103,17 @@ function renderExpensesTable(transactions) {
     .join('');
 }
 
-function updateExpenseTableSummary({ count, totalGbp, totalHkd }) {
+function updateExpenseTableSummary({ count, totalInGbp, totalGbp, totalHkd }) {
   const countEl = document.getElementById('expense-table-count');
   const totalEl = document.getElementById('expense-table-total');
   if (!countEl || !totalEl) return;
 
   countEl.textContent = `Showing ${count} expense(s).`;
-  const totalParts = [`GBP ${fmtAmt(totalGbp)}`];
+  const totalParts = [`Total (in GBP) ${fmtGBP(totalInGbp || totalGbp)}`, `GBP ${fmtAmt(totalGbp)}`];
   if (totalHkd > 0) {
     totalParts.push(`HKD ${fmtAmt(totalHkd)}`);
   }
-  totalEl.textContent = `Total: ${totalParts.join(' | ')}`;
+  totalEl.textContent = totalParts.join(' | ');
 }
 
 function populateIncomeFilterOptions() {
@@ -1126,20 +1131,20 @@ function populateIncomeFilterOptions() {
   accountSelect.innerHTML = ['All accounts', ...accounts].map(option => `<option>${option}</option>`).join('');
 }
 
-function updateIncomeTableSummary({ count, totalGbp, totalOriginal }) {
+function updateIncomeTableSummary({ count, totalGbp }) {
   const countEl = document.getElementById('income-table-count');
   const totalEl = document.getElementById('income-table-total');
   if (!countEl || !totalEl) return;
 
   countEl.textContent = `Showing ${count} income item(s).`;
-  totalEl.textContent = `Total: GBP ${fmtAmt(totalGbp)} | Gross ${fmtAmt(totalOriginal)}`;
+  totalEl.textContent = `Total: GBP ${fmtAmt(totalGbp)}`;
 }
 
 function renderIncomeStatus(message, color = '#8492a6') {
   const tbody = document.getElementById('income-tbody');
   if (!tbody) return;
   currentIncomeRows = [];
-  updateIncomeTableSummary({ count: 0, totalGbp: 0, totalOriginal: 0 });
+  updateIncomeTableSummary({ count: 0, totalGbp: 0 });
   tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:${color};padding:20px">${message}</td></tr>`;
 }
 
@@ -1149,8 +1154,7 @@ function renderIncomeTable(incomes) {
   currentIncomeRows = incomes;
 
   const totalGbp = incomes.reduce((sum, income) => sum + (parseFloat(income.gross_amount_gbp) || parseFloat(income.gross_amount) || 0), 0);
-  const totalOriginal = incomes.reduce((sum, income) => sum + (parseFloat(income.gross_amount) || 0), 0);
-  updateIncomeTableSummary({ count: incomes.length, totalGbp, totalOriginal });
+  updateIncomeTableSummary({ count: incomes.length, totalGbp });
 
   if (!incomes.length) {
     tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#8492a6;padding:20px">No income matches the selected period.</td></tr>';
