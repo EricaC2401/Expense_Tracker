@@ -10,7 +10,21 @@
       "Bash(python3 -c \"import json,sys; rows=json.load\\(sys.stdin\\); [print\\(r\\) for r in rows[:3]]\")",
       "Bash(curl -s \"http://localhost:8000/api/reports/dashboard?period_mode=Custom&start_date=2026-06-01&end_date=2026-06-27\")",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('OK' if 'group_category_spending' in d else d\\)\")",
-      "Bash(curl -s \"http://localhost:8000/api/reports/dashboard?period_mode=Custom&start_date=2026-06-01&end_date=2026-06-27\" -o /dev/null -w \"%{http_code}\")"
+      "Bash(curl -s \"http://localhost:8000/api/reports/dashboard?period_mode=Custom&start_date=2026-06-01&end_date=2026-06-27\" -o /dev/null -w \"%{http_code}\")",
+      "Bash(curl -s \"http://localhost:8000/api/reports/dashboard?period_mode=Month&start_date=2026-06-01&end_date=2026-06-27\")",
+      "Bash(curl -s \"http://localhost:8000/api/reports/daily-trend?start_date=2026-06-01&end_date=2026-06-27\" -w \"\\\\n%{http_code}\")",
+      "Bash(curl -s \"http://localhost:8000/api/reports/monthly-trend?start_date=2025-04-06&end_date=2026-04-05\" -w \"\\\\n%{http_code}\")",
+      "Bash(curl -s \"http://localhost:8000/api/reports/living-classification?start_date=2026-06-01&end_date=2026-06-27\" -w \"\\\\n%{http_code}\")",
+      "Bash(curl -s \"http://localhost:8000/api/reports/daily-trend?start_date=2026-06-01&end_date=2026-06-27&group=Family\" -w \"\\\\n%{http_code}\")",
+      "Bash(node -c frontend/js/app.js)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:8000/api/reports/dashboard?period_mode=Month&start_date=2026-06-01&end_date=2026-06-27\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:8000/api/reports/living-classification?start_date=2026-06-01&end_date=2026-06-27\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:8000/api/reports/daily-trend?start_date=2026-06-01&end_date=2026-06-27\")",
+      "Bash(curl -s \"http://localhost:8000/api/reports/stacked-trend?start_date=2025-04-06&end_date=2026-04-05&granularity=monthly\")",
+      "Bash(python3 -c \"import json,sys; rows=json.load\\(sys.stdin\\); print\\(len\\(rows\\),'rows'\\); [print\\(r\\) for r in rows[:3]]\")",
+      "Bash(curl -s \"http://localhost:8000/api/reports/daily-trend?start_date=2026-06-01&end_date=2026-06-28\")",
+      "Bash(curl -s \"http://localhost:8000/api/reports/monthly-trend?start_date=2025-04-06&end_date=2026-04-05\")",
+      "Bash(curl -s \"http://localhost:8000/api/reports/monthly-trend?start_date=2026-01-01&end_date=2026-06-28\")"
     ]
   }
 }

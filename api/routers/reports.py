@@ -484,6 +484,7 @@ def _build_group_category_spending_used(transactions, fy_transactions, month_rat
     """Like _build_group_category_spending but with Car Related: Annual annualised."""
     ANNUAL_CAT = "Car Related: Annual"
     totals: dict[tuple[str, str], Decimal] = {}
+    totals_hkd: dict[tuple[str, str], Decimal] = {}
     for t in transactions:
         grp = (t.group_name or "").strip()
         cat = (t.category or "").strip()
@@ -492,6 +493,8 @@ def _build_group_category_spending_used(transactions, fy_transactions, month_rat
         key = (grp, cat)
         gbp = build_expense_transaction_total_gbp(t, month_rates_by_month=month_rates)
         totals[key] = totals.get(key, Decimal(0)) + gbp
+        hkd = Decimal(t.amount_hkd or 0) if t.amount_hkd is not None else Decimal(0)
+        totals_hkd[key] = totals_hkd.get(key, Decimal(0)) + hkd
 
     fy_annual_total = Decimal(0)
     for t in fy_transactions:
@@ -503,7 +506,7 @@ def _build_group_category_spending_used(transactions, fy_transactions, month_rat
         totals[(grp, ANNUAL_CAT)] = (fy_annual_total / Decimal(12)).quantize(Decimal("0.01"))
 
     return [
-        {"group": grp, "category": cat, "amount_gbp": _dec(amt)}
+        {"group": grp, "category": cat, "amount_gbp": _dec(amt), "amount_hkd": _dec(totals_hkd.get((grp, cat), Decimal(0)))}
         for (grp, cat), amt in sorted(totals.items())
         if amt != 0
     ]
@@ -511,16 +514,19 @@ def _build_group_category_spending_used(transactions, fy_transactions, month_rat
 
 def _build_group_category_spending(transactions, month_rates):
     """Return per (group_name, category) GBP totals for classification."""
-    totals: dict[tuple[str, str], Decimal] = {}
+    totals_gbp: dict[tuple[str, str], Decimal] = {}
+    totals_hkd: dict[tuple[str, str], Decimal] = {}
     for t in transactions:
         grp = (t.group_name or "").strip()
         cat = (t.category or "").strip()
         key = (grp, cat)
         gbp = build_expense_transaction_total_gbp(t, month_rates_by_month=month_rates)
-        totals[key] = totals.get(key, Decimal(0)) + gbp
+        totals_gbp[key] = totals_gbp.get(key, Decimal(0)) + gbp
+        hkd = Decimal(t.amount_hkd or 0) if t.amount_hkd is not None else Decimal(0)
+        totals_hkd[key] = totals_hkd.get(key, Decimal(0)) + hkd
     return [
-        {"group": grp, "category": cat, "amount_gbp": _dec(amt)}
-        for (grp, cat), amt in sorted(totals.items())
+        {"group": grp, "category": cat, "amount_gbp": _dec(amt), "amount_hkd": _dec(totals_hkd.get((grp, cat), Decimal(0)))}
+        for (grp, cat), amt in sorted(totals_gbp.items())
         if amt != 0
     ]
 
@@ -598,8 +604,72 @@ def monthly_trend(
     month_rates = _get_expense_month_rates(filtered)
     rows = build_monthly_trend_report(filtered, month_rates_by_month=month_rates or None)
     return [
-        {"month": str(r["month"]), "amount_gbp": _dec(r["amount_gbp"]), "amount_hkd": _dec(r["amount_hkd"])}
+        {"month": str(r["month"]), "amount_gbp": _dec(r["amount_gbp"]), "amount_gbp_only": _dec(r["amount_gbp_only"]), "amount_hkd": _dec(r["amount_hkd"])}
         for r in rows
+    ]
+
+
+@router.get("/daily-trend")
+def daily_trend(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    group: str | None = Query(None),
+    category: str | None = Query(None),
+):
+    transactions = fetch_transactions()
+    filtered = _filter_report_transactions(
+        transactions,
+        start_date=start_date,
+        end_date=end_date,
+        group=group,
+        category=category,
+    )
+    month_rates = _get_expense_month_rates(filtered)
+    if build_daily_trend_report is None:
+        return []
+    rows = build_daily_trend_report(filtered, month_rates_by_month=month_rates or None)
+    return [
+        {"day": str(r["day"]), "amount_gbp": _dec(r["amount_gbp"]), "amount_gbp_only": _dec(r["amount_gbp_only"]), "amount_hkd": _dec(r["amount_hkd"])}
+        for r in rows
+    ]
+
+
+@router.get("/stacked-trend")
+def stacked_trend(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    group: str | None = Query(None),
+    category: str | None = Query(None),
+    granularity: str = Query("monthly"),
+):
+    transactions = fetch_transactions()
+    filtered = _filter_report_transactions(
+        transactions,
+        start_date=start_date,
+        end_date=end_date,
+        group=group,
+        category=category,
+    )
+    month_rates = _get_expense_month_rates(filtered)
+
+    totals_gbp: dict[tuple[str, str, str], Decimal] = defaultdict(lambda: Decimal("0.00"))
+    totals_hkd: dict[tuple[str, str, str], Decimal] = defaultdict(lambda: Decimal("0.00"))
+    for t in filtered:
+        if granularity == "daily":
+            period_key = t.transaction_date.isoformat()
+        else:
+            period_key = t.transaction_date.strftime("%Y-%m")
+        grp = (t.group_name or "").strip()
+        cat = (t.category or "").strip()
+        gbp = build_expense_transaction_total_gbp(t, month_rates_by_month=month_rates or None)
+        totals_gbp[(period_key, grp, cat)] += gbp
+        hkd = Decimal(t.amount_hkd or 0) if t.amount_hkd is not None else Decimal(0)
+        totals_hkd[(period_key, grp, cat)] += hkd
+
+    return [
+        {"period": p, "group": g, "category": c, "amount_gbp": _dec(amt), "amount_hkd": _dec(totals_hkd[(p, g, c)])}
+        for (p, g, c), amt in sorted(totals_gbp.items())
+        if amt != 0
     ]
 
 

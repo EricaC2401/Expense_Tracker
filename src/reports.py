@@ -784,20 +784,24 @@ def build_monthly_trend_report(
 
     totals_gbp: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
     totals_hkd: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+    totals_gbp_only: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
     for transaction in transactions:
         month_key = transaction.transaction_date.strftime("%Y-%m")
-        totals_gbp[month_key] += build_expense_transaction_total_gbp(
+        gbp = build_expense_transaction_total_gbp(
             transaction,
             month_rates_by_month=month_rates_by_month,
         )
-        totals_hkd[month_key] += (
-            Decimal("0.00") if transaction.amount_hkd is None else Decimal(transaction.amount_hkd)
-        )
+        totals_gbp[month_key] += gbp
+        hkd = Decimal("0.00") if transaction.amount_hkd is None else Decimal(transaction.amount_hkd)
+        totals_hkd[month_key] += hkd
+        if hkd <= 0:
+            totals_gbp_only[month_key] += Decimal(transaction.amount_gbp or 0)
 
     return [
         {
             "month": month,
             "amount_gbp": totals_gbp[month],
+            "amount_gbp_only": totals_gbp_only[month],
             "amount_hkd": totals_hkd[month],
         }
         for month in sorted(totals_gbp.keys())
@@ -813,20 +817,23 @@ def build_daily_trend_report(
 
     totals_gbp: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
     totals_hkd: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
+    totals_gbp_only: dict[str, Decimal] = defaultdict(lambda: Decimal("0.00"))
     for transaction in transactions:
         day_key = transaction.transaction_date.isoformat()
         totals_gbp[day_key] += build_expense_transaction_total_gbp(
             transaction,
             month_rates_by_month=month_rates_by_month,
         )
-        totals_hkd[day_key] += (
-            Decimal("0.00") if transaction.amount_hkd is None else Decimal(transaction.amount_hkd)
-        )
+        hkd = Decimal("0.00") if transaction.amount_hkd is None else Decimal(transaction.amount_hkd)
+        totals_hkd[day_key] += hkd
+        if hkd <= 0:
+            totals_gbp_only[day_key] += Decimal(transaction.amount_gbp or 0)
 
     return [
         {
             "day": day,
             "amount_gbp": totals_gbp[day],
+            "amount_gbp_only": totals_gbp_only[day],
             "amount_hkd": totals_hkd[day],
         }
         for day in sorted(totals_gbp.keys())

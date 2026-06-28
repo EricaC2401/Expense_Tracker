@@ -22,9 +22,29 @@ from src.db import (
 )
 from src.models import validate_expense_transaction, ValidationError
 from src.finance_dashboard_cache import invalidate_finance_dashboard_cache
-from api.serializers import serialize_expense
+from src.reports import build_expense_transaction_total_gbp
+from src.db import fetch_hmrc_monthly_exchange_rates, upsert_hmrc_monthly_exchange_rates
+from src.import_csv import fetch_hmrc_monthly_rates
+from api.serializers import serialize_expense, _dec
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
+
+
+def _get_month_rates(expenses):
+    month_anchors = sorted({
+        t.transaction_date.replace(day=1)
+        for t in expenses
+        if t.amount_hkd is not None and Decimal(t.amount_hkd) > 0
+    })
+    rates = {}
+    for ma in month_anchors:
+        cached = fetch_hmrc_monthly_exchange_rates(ma)
+        if not cached:
+            fetched = fetch_hmrc_monthly_rates(ma.year, ma.month)
+            upsert_hmrc_monthly_exchange_rates(ma, fetched)
+            cached = fetched
+        rates[ma] = cached
+    return rates
 
 LINKED_PAYMENT_METHODS = {
     "Monzo Current": ("Monzo", "Current", "GBP"),
@@ -84,6 +104,7 @@ def list_expenses(
 ):
     transactions = fetch_transactions(limit=limit)
     results = []
+    filtered = []
     for t in transactions:
         if start_date and t.transaction_date < start_date:
             continue
@@ -107,7 +128,13 @@ def list_expenses(
                 for field in [t.description, t.category, t.group_name, t.payment_method or "", t.notes or ""]
             ):
                 continue
-        results.append(serialize_expense(t))
+        filtered.append(t)
+
+    month_rates = _get_month_rates(filtered)
+    for t in filtered:
+        row = serialize_expense(t)
+        row["total_gbp"] = _dec(build_expense_transaction_total_gbp(t, month_rates_by_month=month_rates))
+        results.append(row)
     return results
 
 

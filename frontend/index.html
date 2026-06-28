@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Expense Tracker</title>
-<link rel="stylesheet" href="/css/app.css?v=20260627-55">
+<link rel="stylesheet" href="/css/app.css?v=20260628-01">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 </head>
@@ -17,17 +17,16 @@
     <div class="sb-logo-icon"><i class="ti ti-receipt-2"></i></div>
     <span class="sb-logo-text">Expenses</span>
   </div>
-  <div class="sb-section">Main</div>
+  <div class="sb-section">Overview / Insight</div>
   <div class="nav active" onclick="nav('dashboard',this)"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+  <div class="nav" onclick="nav('monthly-overview',this)"><i class="ti ti-calendar-stats"></i>Monthly Overview</div>
+  <div class="nav" onclick="nav('reports',this)"><i class="ti ti-chart-pie"></i>Expense Analytics</div>
+  <div class="sb-section">Records</div>
+  <div class="nav" onclick="nav('finance',this)"><i class="ti ti-building-bank"></i>Finance Snapshot</div>
   <div class="nav" onclick="nav('expenses',this)"><i class="ti ti-arrow-down-circle"></i>Expenses</div>
   <div class="nav" onclick="nav('income',this)"><i class="ti ti-arrow-up-circle"></i>Income</div>
   <div class="nav" onclick="nav('tax',this)"><i class="ti ti-receipt-tax"></i>Tax</div>
-  <div class="sb-section">Finance</div>
-  <div class="nav" onclick="nav('finance',this)"><i class="ti ti-building-bank"></i>Finance Snapshot</div>
   <div class="nav" onclick="nav('recurring',this)"><i class="ti ti-repeat"></i>Recurring</div>
-  <div class="sb-section">Insights</div>
-  <div class="nav" onclick="nav('reports',this)"><i class="ti ti-chart-pie"></i>Reports</div>
-  <div class="nav" onclick="nav('monthly-overview',this)"><i class="ti ti-calendar-stats"></i>Monthly Overview</div>
   <div class="sb-section">Data</div>
   <div class="nav" onclick="nav('import',this)"><i class="ti ti-upload"></i>Import</div>
   <div class="nav" onclick="nav('export',this)"><i class="ti ti-download"></i>Export</div>
@@ -74,7 +73,7 @@
     <div class="section active" id="sec-dashboard">
       <!-- Row 1: 5 metric cards -->
       <div class="metrics metrics-5" id="dashboard-metrics-row1">
-        <div class="mc"><div class="mc-label">Gross income</div><div class="mc-value pos" id="mc-income">—</div><div class="mc-sub" id="mc-income-sub">Loading…</div></div>
+        <div class="mc"><div class="mc-label">Income</div><div class="mc-value pos" id="mc-income">—</div><div class="mc-sub" id="mc-income-sub">Loading…</div></div>
         <div class="mc"><div class="mc-label">Allowable Expenses</div><div class="mc-value neg" id="mc-taxable-exp">—</div><div class="mc-sub" id="mc-taxable-exp-sub"></div></div>
         <div class="mc"><div class="mc-label">Tax Liability</div><div class="mc-value" id="mc-tax">—</div><div class="mc-sub" id="mc-tax-sub"></div></div>
         <div class="mc"><div class="mc-label">Accrued Expenses</div><div class="mc-value neg" id="mc-exp-used">—</div><div class="mc-sub" id="mc-exp-used-sub"></div></div>
@@ -197,8 +196,8 @@
         </div>
         <div class="tbl-wrap expense-tbl-wrap">
           <table class="data-tbl">
-            <thead><tr><th><input type="checkbox"></th><th>Date</th><th>Description</th><th>Category</th><th>Group</th><th>Amount (GBP)</th><th>Amount (HKD)</th><th>Tax ded.</th><th>Payment method</th><th>Notes</th><th>Actions</th></tr></thead>
-            <tbody id="expense-tbody"><tr><td colspan="11" style="text-align:center;color:#8492a6;padding:20px">Loading expenses…</td></tr></tbody>
+            <thead><tr><th><input type="checkbox"></th><th>Date</th><th>Description</th><th>Category</th><th>Group</th><th>Total (GBP)</th><th>Amount (GBP)</th><th>Amount (HKD)</th><th>Tax ded.</th><th>Payment method</th><th>Notes</th><th>Actions</th></tr></thead>
+            <tbody id="expense-tbody"><tr><td colspan="12" style="text-align:center;color:#8492a6;padding:20px">Loading expenses…</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -207,9 +206,9 @@
     <!-- ══ INCOME ══ -->
     <div class="section" id="sec-income">
       <div class="metrics metrics-3" id="income-metrics">
-        <div class="mc"><div class="mc-label">Gross income (GBP)</div><div class="mc-value pos" id="mc-gross-income">—</div><div class="mc-sub" id="mc-gross-income-sub">Loading…</div></div>
+        <div class="mc"><div class="mc-label">Income (GBP)</div><div class="mc-value pos" id="mc-gross-income">—</div><div class="mc-sub" id="mc-gross-income-sub">Loading…</div></div>
         <div class="mc"><div class="mc-label">Tax due</div><div class="mc-value" id="mc-tax-due">—</div><div class="mc-sub">From tax-due entries</div></div>
-        <div class="mc"><div class="mc-label">After-tax income</div><div class="mc-value pos" id="mc-after-tax">—</div><div class="mc-sub">Gross minus tax due</div></div>
+        <div class="mc"><div class="mc-label">After-tax income</div><div class="mc-value pos" id="mc-after-tax">—</div><div class="mc-sub">Income minus tax due</div></div>
       </div>
       <div class="card">
         <div class="card-title"><i class="ti ti-plus"></i>Add income</div>
@@ -218,8 +217,8 @@
           <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. June salary" id="inc-desc"></div>
           <div class="form-group"><label>Source</label><input type="text" placeholder="e.g. Employer" id="inc-source"></div>
           <div class="form-group"><label>Currency</label><select id="inc-currency"><option>GBP</option><option>HKD</option><option>USD</option><option>EUR</option><option>CAD</option><option>JPY</option></select></div>
-          <div class="form-group"><label>Gross amount</label><input type="number" placeholder="0.00" step="0.01" id="inc-amount"></div>
-          <div class="form-group"><label>Gross amount (GBP) — optional</label><input type="number" placeholder="0.00" step="0.01" id="inc-gbp"></div>
+          <div class="form-group"><label>Amount</label><input type="number" placeholder="0.00" step="0.01" id="inc-amount"></div>
+          <div class="form-group"><label>Amount (GBP) — optional</label><input type="number" placeholder="0.00" step="0.01" id="inc-gbp"></div>
           <div class="form-group"><label>FX rate to GBP — optional</label><input type="number" placeholder="0.0000" step="0.0001" id="inc-fx"></div>
           <div class="form-group"><label>Payment account</label><select id="inc-account"><option value="">— No linked account</option><option>Monzo Current</option><option>HSBC HK GBP</option><option>HSBC HK HKD</option></select></div>
         </div>
@@ -259,7 +258,7 @@
         </div>
         <div class="tbl-wrap expense-tbl-wrap">
           <table class="data-tbl">
-            <thead><tr><th><input type="checkbox"></th><th>Date</th><th>Description</th><th>Source</th><th>Currency</th><th>Gross amount</th><th>GBP equiv.</th><th>FX rate</th><th>Taxable</th><th>Account</th><th>Notes</th><th>Actions</th></tr></thead>
+            <thead><tr><th><input type="checkbox"></th><th>Date</th><th>Description</th><th>Source</th><th>Currency</th><th>Amount</th><th>GBP equiv.</th><th>FX rate</th><th>Taxable</th><th>Account</th><th>Notes</th><th>Actions</th></tr></thead>
             <tbody id="income-tbody"><tr><td colspan="12" style="text-align:center;color:#8492a6;padding:20px">Loading income…</td></tr></tbody>
           </table>
         </div>
@@ -541,7 +540,7 @@
               <div class="form-group"><label>Description</label><input type="text" placeholder="e.g. Monthly salary" id="rec-inc-desc"></div>
               <div class="form-group"><label>Source</label><input type="text" placeholder="e.g. Employer" id="rec-inc-source"></div>
               <div class="form-group"><label>Currency</label><select id="rec-inc-currency"><option>GBP</option><option>HKD</option><option>USD</option><option>EUR</option></select></div>
-              <div class="form-group"><label>Gross amount</label><input type="number" placeholder="0.00" step="0.01" id="rec-inc-amount"></div>
+              <div class="form-group"><label>Amount</label><input type="number" placeholder="0.00" step="0.01" id="rec-inc-amount"></div>
               <div class="form-group"><label>Day of month</label><input type="number" placeholder="1" min="1" max="31" id="rec-inc-day"></div>
               <div class="form-group"><label>Payment account</label><select id="rec-inc-account"><option value="">— No linked account</option><option>Monzo Current</option><option>HSBC HK GBP</option><option>HSBC HK HKD</option></select></div>
               <div class="form-group"><label>Start date</label><input type="date" id="rec-inc-start"></div>
@@ -580,6 +579,16 @@
           <select id="report-group-filter"><option>All groups</option><option>Living</option><option>TaxPayment</option></select>
           <select id="report-cat-filter"><option>All categories</option></select>
           <select id="report-classification-filter"><option>All classifications</option></select>
+          <div style="flex:1"></div>
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="setReportTaxFilter('ex-tax',this)">Exclude Tax</button>
+            <button class="seg-btn" onclick="setReportTaxFilter('with-liability',this)">With Tax Liability</button>
+            <button class="seg-btn" onclick="setReportTaxFilter('all',this)">Expense Based</button>
+          </div>
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="setReportBasis('paid',this)">Paid</button>
+            <button class="seg-btn" onclick="setReportBasis('used',this)">Used</button>
+          </div>
         </div>
       </div>
       <div class="catmgr-overlay" id="clf-overlay">
@@ -639,8 +648,14 @@
           <div class="seg-control" style="margin-bottom:0">
             <button class="seg-btn active" onclick="switchTrend('line',this)">Line</button>
             <button class="seg-btn" onclick="switchTrend('bar',this)">Bar</button>
+            <button class="seg-btn" onclick="switchTrend('stacked-cat',this)">Stacked (Category)</button>
+            <button class="seg-btn" onclick="switchTrend('stacked-clf',this)">Stacked (Classification)</button>
           </div>
-          <div id="trend-legend" class="legend-row" style="margin-bottom:0"></div>
+          <div class="seg-control" style="margin-bottom:0">
+            <button class="seg-btn active" onclick="setTrendCurrency('TOTAL',this)">Total (in GBP)</button>
+            <button class="seg-btn" onclick="setTrendCurrency('GBP',this)">GBP</button>
+            <button class="seg-btn" onclick="setTrendCurrency('HKD',this)">HKD</button>
+          </div>
         </div>
         <div class="chart-wrap" style="height:240px"><canvas id="trend"></canvas></div>
         <p id="trend-hint" style="font-size:11px;color:#8492a6;margin-top:8px">Monthly expense total over time.</p>
@@ -686,9 +701,9 @@
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
           <div class="card-title" style="margin-bottom:0"><i class="ti ti-arrow-down-circle"></i>Expense breakdown by month</div>
           <div class="seg-control" id="mo-exp-filter-control" style="margin-bottom:0">
-            <button class="seg-btn active" onclick="setMoExpFilter('all',this)">Expense Based</button>
+            <button class="seg-btn active" onclick="setMoExpFilter('ex-tax',this)">Exclude Tax</button>
             <button class="seg-btn" onclick="setMoExpFilter('with-liability',this)">With Tax Liability</button>
-            <button class="seg-btn" onclick="setMoExpFilter('ex-tax',this)">Exclude Tax</button>
+            <button class="seg-btn" onclick="setMoExpFilter('all',this)">Expense Based</button>
           </div>
         </div>
         <div class="mo-legend" id="mo-expense-legend"></div>
@@ -763,17 +778,17 @@
       <div class="card">
         <div class="card-title"><i class="ti ti-info-circle"></i>Data caveats &amp; calculation notes</div>
         <div style="font-size:12.5px;color:#3d4a5c;line-height:1.7">
-          <p style="margin-bottom:12px;color:#8492a6;font-style:italic">All percentages on the dashboard are calculated as a percentage of gross income.</p>
+          <p style="margin-bottom:12px;color:#8492a6;font-style:italic">All percentages on the dashboard are calculated as a percentage of income.</p>
 
           <p style="margin-bottom:6px"><strong>Row 1 — Income &amp; accrual view</strong></p>
           <table class="data-tbl" style="margin-bottom:16px">
             <thead><tr><th>Metric</th><th style="text-align:left">How it is calculated</th></tr></thead>
             <tbody>
-              <tr><td><strong>Gross Income</strong></td><td style="text-align:left">Sum of all income transactions in the selected period.</td></tr>
+              <tr><td><strong>Income</strong></td><td style="text-align:left">Sum of all income transactions in the selected period.</td></tr>
               <tr><td><strong>Allowable Expenses</strong></td><td style="text-align:left">Sum of expenses marked as tax-deductible in the selected period.</td></tr>
               <tr><td><strong>Tax Liability</strong></td><td style="text-align:left">Estimated tax burden for the period. Monthly view: total tax due entries in the relevant financial year ÷ 12. Financial year view: total tax due entries for that year. Other views: actual tax payments (expenses in the "Tax Payment" group).</td></tr>
               <tr><td><strong>Accrued Expenses</strong></td><td style="text-align:left">Total expenses (excl. Tax Payment group) with annual costs (e.g. Car Related: Annual) spread monthly (÷ 12) instead of showing the full amount in the month paid.</td></tr>
-              <tr><td><strong>Saving (Used)</strong></td><td style="text-align:left">Gross Income − Accrued Expenses − Tax Liability. Represents smoothed saving after spreading annual costs.</td></tr>
+              <tr><td><strong>Saving (Used)</strong></td><td style="text-align:left">Income − Accrued Expenses − Tax Liability. Represents smoothed saving after spreading annual costs.</td></tr>
             </tbody>
           </table>
 
@@ -784,7 +799,7 @@
               <tr><td><strong>Allocated Tax Paid</strong></td><td style="text-align:left">Total tax payment expenses in the relevant financial year ÷ 12. Spreads the actual tax paid across months evenly. Subtitle shows actual tax payment expenses recorded in the selected period.</td></tr>
               <tr><td><strong>Expenses Paid</strong></td><td style="text-align:left">Total expenses (excl. Tax Payment group) as actually paid in the period. Full amounts shown in the month they occurred.</td></tr>
               <tr><td><strong>Cash Outflow</strong></td><td style="text-align:left">Expenses Paid + actual tax paid this period. Total cash leaving your accounts in the period.</td></tr>
-              <tr><td><strong>Saving (Paid)</strong></td><td style="text-align:left">Gross Income − Expenses Paid − Tax Liability. Cash-basis saving for the period.</td></tr>
+              <tr><td><strong>Saving (Paid)</strong></td><td style="text-align:left">Income − Expenses Paid − Tax Liability. Cash-basis saving for the period.</td></tr>
               <tr><td><strong>Net Cash Flow</strong></td><td style="text-align:left">Cash inflow (income received) − cash outflow (expenses + tax payments) for the period.</td></tr>
             </tbody>
           </table>
@@ -850,7 +865,7 @@
 
 <script src="/js/api.js?v=20260627-55"></script>
 <script src="/js/utils.js?v=20260627-55"></script>
-<script src="/js/dashboard.js?v=20260627-55"></script>
-<script src="/js/app.js?v=20260627-55"></script>
+<script src="/js/dashboard.js?v=20260628-01"></script>
+<script src="/js/app.js?v=20260628-01"></script>
 </body>
 </html>

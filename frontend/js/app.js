@@ -7,7 +7,7 @@ const pages = {
   tax:       { title: 'Tax', action: 'Add tax due', pills: false },
   finance:   { title: 'Finance snapshot', action: '', pills: false },
   recurring: { title: 'Recurring', action: 'New template', pills: false },
-  reports:   { title: 'Reports', action: '', pills: false },
+  reports:   { title: 'Expense Analytics', action: '', pills: false },
   import:    { title: 'Import', action: '', pills: false },
   export:    { title: 'Export', action: '', pills: false },
   'monthly-overview': { title: 'Monthly overview', action: '', pills: false },
@@ -28,7 +28,7 @@ let customPeriod = {
 const selectedPeriodKeys = {};
 let moYearType = 'calendar';
 let moBasis = 'paid';
-let moExpFilter = 'all';
+let moExpFilter = 'ex-tax';
 let moCharts = [];
 let moTrendChart = null;
 let _lastMoData = null;
@@ -74,9 +74,12 @@ let categoryGroups = [];
 let categoryManagerAvailable = true;
 let reportCurrency = 'TOTAL';
 let reportBreakdownMode = 'category';
+let reportBasis = 'paid';
+let reportTaxFilter = 'ex-tax';
 let reportCategoryChartType = 'bar';
 let reportLivingChartType = 'bar';
 let reportTrendChartType = 'line';
+let reportTrendCurrency = 'TOTAL';
 let reportCategoryChart = null;
 let reportLivingChart = null;
 let reportTrendChart = null;
@@ -88,6 +91,16 @@ let reportCustomPeriod = {
   start: toISODate(TRACKING_START_DATE),
   end: toISODate(new Date()),
 };
+
+function shadeColor(hex, lightness) {
+  let r = parseInt(hex.slice(1, 3), 16);
+  let g = parseInt(hex.slice(3, 5), 16);
+  let b = parseInt(hex.slice(5, 7), 16);
+  r = Math.round(r + (255 - r) * lightness);
+  g = Math.round(g + (255 - g) * lightness);
+  b = Math.round(b + (255 - b) * lightness);
+  return `rgb(${r},${g},${b})`;
+}
 
 function normalizeText(value) {
   return String(value || '').trim().replace(/\s+/g, ' ');
@@ -1052,7 +1065,7 @@ function renderExpensesTable(transactions) {
   });
 
   if (!transactions.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#8492a6;padding:20px">No expenses match the selected period.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#8492a6;padding:20px">No expenses match the selected period.</td></tr>';
     return;
   }
 
@@ -1068,7 +1081,8 @@ function renderExpensesTable(transactions) {
         <td>${transaction.description}</td>
         <td>${categoryChip(transaction.category, transaction.group)}</td>
         <td>${renderGroupChip(transaction.group)}</td>
-        <td style="font-weight:600">${fmtGBP(transaction.amount_gbp)}</td>
+        <td style="font-weight:600">${fmtGBP(transaction.total_gbp || transaction.amount_gbp)}</td>
+        <td>£${fmtAmt(transaction.amount_gbp)}</td>
         <td>${amountHkd}</td>
         <td style="text-align:center">${taxDeductable}</td>
         <td>${paymentMethod}</td>
@@ -2084,16 +2098,16 @@ async function loadExpensesPage(forceRefresh = false) {
       renderExpensesStatus(`Expense load error: ${error.message}`, '#c0392b');
       return;
     }
-
-    populateExpenseFilterOptions();
-    const latestExpenseDate = getLatestExpenseDate();
-    const currentMonthStart = monthStartDate(latestExpenseDate.getFullYear(), latestExpenseDate.getMonth());
-    expenseCustomPeriod = {
-      start: toISODate(currentMonthStart),
-      end: toISODate(latestExpenseDate),
-    };
-    syncExpensePeriodSelector();
   }
+
+  populateExpenseFilterOptions();
+  const latestExpenseDate = getLatestExpenseDate();
+  const currentMonthStart = monthStartDate(latestExpenseDate.getFullYear(), latestExpenseDate.getMonth());
+  expenseCustomPeriod = {
+    start: toISODate(currentMonthStart),
+    end: toISODate(latestExpenseDate),
+  };
+  syncExpensePeriodSelector();
 
   await loadCategoryCatalog(forceRefresh);
 
@@ -2772,42 +2786,176 @@ function renderLivingChart(rows) {
   });
 }
 
-function renderTrendChart(rows) {
+function setTrendCurrency(currency, btn) {
+  reportTrendCurrency = currency;
+  btn.closest('.seg-control')?.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (currentReportsData) renderTrendChart(currentReportsData.trendData, currentReportsData.trendType);
+}
+
+function renderTrendChart(rows, trendType) {
   const canvas = document.getElementById('trend');
   if (reportTrendChart) reportTrendChart.destroy();
 
-  const labels = rows.map(row => row.month);
-  const amounts = rows.map(row => parseFloat(row.amount_gbp) || 0);
-  document.getElementById('trend-hint').textContent = rows.length
-    ? 'Monthly expense total over time.'
-    : 'No trend data for this selection.';
-  document.getElementById('trend-legend').innerHTML = rows.length
-    ? `<span class="chip" style="background:${hexToRgba('#5B6C9E', 0.14)};border-color:${hexToRgba('#5B6C9E', 0.22)};color:#5B6C9E">GBP expenses</span>`
-    : '';
+  if (reportTrendChartType === 'stacked-cat' || reportTrendChartType === 'stacked-clf') {
+    renderStackedTrendChart(canvas, trendType);
+    return;
+  }
+
+  let effectiveRows = rows;
+  if (!reportIncludeTax && currentReportsData?.stackedTrend) {
+    const filtered = filterTaxFromStackedTrend(currentReportsData.stackedTrend);
+    const periodKey = trendType === 'daily' ? 'period' : 'period';
+    const byPeriod = {};
+    for (const r of filtered) {
+      if (!byPeriod[r.period]) byPeriod[r.period] = { gbp: 0, gbp_only: 0, hkd: 0 };
+      byPeriod[r.period].gbp += parseFloat(r.amount_gbp) || 0;
+      const hkd = parseFloat(r.amount_hkd) || 0;
+      byPeriod[r.period].hkd += hkd;
+      if (hkd <= 0) byPeriod[r.period].gbp_only += parseFloat(r.amount_gbp) || 0;
+    }
+    effectiveRows = Object.entries(byPeriod).sort(([a], [b]) => a.localeCompare(b)).map(([p, v]) => ({
+      day: p, month: p, amount_gbp: v.gbp.toFixed(2), amount_gbp_only: v.gbp_only.toFixed(2), amount_hkd: v.hkd.toFixed(2),
+    }));
+  }
+
+  const labels = effectiveRows.map(row => {
+    if (trendType === 'daily') {
+      const d = parseISODate(row.day);
+      return d.getDate() + ' ' + d.toLocaleString('en-GB', { month: 'short' });
+    }
+    return row.month;
+  });
+
+  const granLabel = trendType === 'daily' ? 'Daily' : 'Monthly';
+  const currHint = reportTrendCurrency === 'HKD' ? ' (HKD)' : (reportTrendCurrency === 'GBP' ? ' (GBP only)' : ' (Total in GBP)');
+  document.getElementById('trend-hint').textContent = effectiveRows.length ? `${granLabel} expense total${currHint}.` : 'No trend data for this selection.';
 
   if (!labels.length) return;
+
+  const isHKD = reportTrendCurrency === 'HKD';
+  const dataKey = isHKD ? 'amount_hkd' : (reportTrendCurrency === 'GBP' ? 'amount_gbp_only' : 'amount_gbp');
+  const color = isHKD ? '#e67e22' : (reportTrendCurrency === 'GBP' ? '#27ae60' : '#5B6C9E');
+  const currLabel = isHKD ? 'HKD' : (reportTrendCurrency === 'GBP' ? 'GBP Only' : 'Total (in GBP)');
 
   reportTrendChart = new Chart(canvas, {
     type: reportTrendChartType,
     data: {
       labels,
       datasets: [{
-        label: 'Expenses',
-        data: amounts,
-        borderColor: '#5B6C9E',
-        backgroundColor: hexToRgba('#5B6C9E', 0.2),
+        label: currLabel,
+        data: effectiveRows.map(r => parseFloat(r[dataKey]) || 0),
+        borderColor: color,
+        backgroundColor: hexToRgba(color, 0.2),
         fill: reportTrendChartType === 'line',
         tension: 0.3,
-        borderRadius: reportTrendChartType === 'bar' ? 6 : 0,
+        pointRadius: 3,
+        borderRadius: 6,
       }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${isHKD ? 'HK$' + fmtAmt(ctx.raw) : fmtGBP(ctx.raw)}`,
+          },
+        },
+      },
       scales: {
-        x: { grid: { display: false } },
-        y: { grid: { color: '#f0f1f5' }, ticks: { callback: v => `£${Math.round(v)}` } },
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: { grid: { color: '#f0f1f5' }, ticks: { callback: v => isHKD ? 'HK$' + Math.round(v) : '£' + Math.round(v) } },
+      },
+    },
+  });
+}
+
+function renderStackedTrendChart(canvas, trendType) {
+  const stackedData = filterTaxFromStackedTrend(currentReportsData?.stackedTrend || []);
+  if (!stackedData.length) {
+    document.getElementById('trend-hint').textContent = 'No trend data for this selection.';
+    return;
+  }
+
+  const byClassification = reportTrendChartType === 'stacked-clf';
+  const isHKD = reportTrendCurrency === 'HKD';
+  const amtKey = isHKD ? 'amount_hkd' : 'amount_gbp';
+  let filtered = stackedData;
+  if (reportTrendCurrency === 'HKD') {
+    filtered = stackedData.filter(r => parseFloat(r.amount_hkd) > 0);
+  } else if (reportTrendCurrency === 'GBP') {
+    filtered = stackedData.filter(r => !r.amount_hkd || parseFloat(r.amount_hkd) <= 0);
+  }
+
+  const periods = [...new Set(filtered.map(r => r.period))].sort();
+  const labels = periods.map(p => {
+    if (trendType === 'daily') {
+      const d = parseISODate(p);
+      return d.getDate() + ' ' + d.toLocaleString('en-GB', { month: 'short' });
+    }
+    return p;
+  });
+
+  let buckets, colorFn;
+  if (byClassification) {
+    buckets = {};
+    for (const row of filtered) {
+      const sg = getClassification(row.group || '', row.category || '');
+      if (!buckets[sg]) buckets[sg] = {};
+      buckets[sg][row.period] = (buckets[sg][row.period] || 0) + (parseFloat(row[amtKey]) || 0);
+    }
+    colorFn = name => classificationData.find(c => c.name === name)?.color || '#8492a6';
+  } else {
+    buckets = {};
+    for (const row of filtered) {
+      const cat = row.category || 'Other';
+      if (!buckets[cat]) buckets[cat] = {};
+      buckets[cat][row.period] = (buckets[cat][row.period] || 0) + (parseFloat(row[amtKey]) || 0);
+    }
+    colorFn = name => getCatColor(name);
+  }
+
+  const sortedNames = Object.entries(buckets)
+    .map(([name, periodMap]) => ({ name, total: Object.values(periodMap).reduce((s, v) => s + v, 0) }))
+    .sort((a, b) => b.total - a.total)
+    .map(e => e.name);
+
+  if (!periods.length || !sortedNames.length) {
+    document.getElementById('trend-hint').textContent = 'No data for this currency selection.';
+    return;
+  }
+
+  const datasets = sortedNames.map(name => ({
+    label: name,
+    data: periods.map(p => buckets[name][p] || 0),
+    backgroundColor: colorFn(name),
+    borderRadius: 2,
+  }));
+
+  const granLabel = trendType === 'daily' ? 'Daily' : 'Monthly';
+  const currHint = isHKD ? ' (HKD)' : (reportTrendCurrency === 'GBP' ? ' (GBP only)' : '');
+  document.getElementById('trend-hint').textContent = `${granLabel} expense breakdown${currHint}.`;
+
+  reportTrendChart = new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: { stacked: true, grid: { color: '#f0f1f5' }, ticks: { callback: v => isHKD ? 'HK$' + Math.round(v) : '£' + Math.round(v) } },
+      },
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.raw > 0 ? `${ctx.dataset.label}: ${isHKD ? 'HK$' + fmtAmt(ctx.raw) : fmtGBP(ctx.raw)}` : '',
+          },
+          filter: item => item.raw > 0,
+        },
       },
     },
   });
@@ -2835,16 +2983,10 @@ function renderLargestExpenses(rows) {
 function renderReports(data, dates) {
   currentReportsData = data;
   updatePeriodHint(dates);
-  setReportMetricValue('mc-rpt-gbp', fmtGBP(data.summary.total_gbp));
-  setReportMetricValue('mc-rpt-gbp-only', fmtGBP(data.summary.gbp_only));
-  setReportMetricValue('mc-rpt-hkd', 'HK$' + fmtAmt(data.summary.total_hkd));
-  const hkdInGbp = (parseFloat(data.summary.total_gbp) || 0) - (parseFloat(data.summary.gbp_only) || 0);
-  const hkdSub = document.querySelector('#mc-rpt-hkd')?.closest('.mc')?.querySelector('.mc-sub');
-  if (hkdSub) hkdSub.textContent = `≈ ${fmtGBP(hkdInGbp)} in GBP`;
-  setReportMetricValue('mc-rpt-count', String(data.summary.transaction_count));
-  refreshReportBreakdown();
-  renderTrendChart(data.monthlyTrend);
-  renderLargestExpenses(data.largestExpenses);
+  try { renderReportMetrics(data); } catch (e) { console.error('Metrics render error:', e); }
+  try { refreshReportBreakdown(); } catch (e) { console.error('Breakdown render error:', e); }
+  try { renderTrendChart(data.trendData, data.trendType); } catch (e) { console.error('Trend render error:', e); }
+  try { renderLargestExpenses(data.largestExpenses); } catch (e) { console.error('Largest render error:', e); }
 }
 
 async function loadReports() {
@@ -2864,12 +3006,17 @@ async function loadReports() {
   renderReportsLoading('Loading reports…');
 
   try {
-    const dashParams = new URLSearchParams({ period_mode: 'Custom', start_date: dates.start, end_date: dates.end });
-    const [summary, categorySpending, livingClassification, monthlyTrend, largestExpenses, dashData] = await Promise.all([
+    const isMonthMode = reportPeriodMode === 'Month';
+    const dashPeriodMode = isMonthMode ? 'Month' : (reportPeriodMode === 'Financial year' ? 'Financial Year' : 'Custom');
+    const dashParams = new URLSearchParams({ period_mode: dashPeriodMode, start_date: dates.start, end_date: dates.end });
+    const trendEndpoint = isMonthMode ? `/reports/daily-trend?${params}` : `/reports/monthly-trend?${params}`;
+    const stackedGranularity = isMonthMode ? 'daily' : 'monthly';
+    const [summary, categorySpending, livingClassification, trendData, stackedTrend, largestExpenses, dashData] = await Promise.all([
       apiGet(`/reports/summary?${params}`),
       apiGet(`/reports/category-spending?${params}`),
       apiGet(`/reports/living-classification?${params}`),
-      apiGet(`/reports/monthly-trend?${params}`),
+      apiGet(trendEndpoint),
+      apiGet(`/reports/stacked-trend?${params}&granularity=${stackedGranularity}`),
       apiGet(`/reports/largest-expenses?${params}`),
       apiGet(`/reports/dashboard?${dashParams}`),
     ]);
@@ -2878,12 +3025,95 @@ async function loadReports() {
       summary,
       categorySpending,
       livingClassification,
-      monthlyTrend,
+      trendData,
+      stackedTrend,
+      trendType: isMonthMode ? 'daily' : 'monthly',
       largestExpenses,
       groupCategorySpending: dashData.group_category_spending || [],
+      groupCategorySpendingUsed: dashData.group_category_spending_used || [],
+      dashMetrics: dashData.metrics || {},
     }, dates);
   } catch (error) {
     renderReportsError(`Report load error: ${error.message}`);
+  }
+}
+
+function setReportTaxFilter(filter, btn) {
+  reportTaxFilter = filter;
+  btn.closest('.seg-control')?.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (currentReportsData) {
+    renderReportMetrics(currentReportsData);
+    refreshReportBreakdown();
+    renderTrendChart(currentReportsData.trendData, currentReportsData.trendType);
+  }
+}
+
+function isTaxGroup(group) {
+  const g = (group || '').trim().toLowerCase();
+  return g === 'taxpayment' || g === 'tax payment';
+}
+
+function filterTaxFromCategorySpending(rows) {
+  if (reportTaxFilter === 'all' || reportTaxFilter === 'with-liability') return rows;
+  return rows.filter(r => {
+    const cat = (r.category || '').toLowerCase();
+    return cat !== 'tax' && cat !== 'tax payment';
+  });
+}
+
+function filterTaxFromGroupCategorySpending(rows) {
+  if (reportTaxFilter === 'all') return rows;
+  return rows.filter(r => !isTaxGroup(r.group));
+}
+
+function filterTaxFromStackedTrend(rows) {
+  if (reportTaxFilter === 'all') return rows;
+  return rows.filter(r => !isTaxGroup(r.group));
+}
+
+function setReportBasis(basis, btn) {
+  reportBasis = basis;
+  btn.closest('.seg-control')?.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (currentReportsData) {
+    renderReportMetrics(currentReportsData);
+    refreshReportBreakdown();
+  }
+}
+
+function renderReportMetrics(data) {
+  try {
+    const m = data.dashMetrics || {};
+    const s = data.summary || {};
+
+    const summaryTotal = parseFloat(s.total_gbp) || 0;
+    const gbpOnly = parseFloat(s.gbp_only) || 0;
+    const totalHkd = parseFloat(s.total_hkd) || 0;
+    const count = s.transaction_count || 0;
+    const hkdInGbp = summaryTotal - gbpOnly;
+
+    const exTaxKey = reportBasis === 'used' ? 'expense_used_ex_tax_gbp' : 'expense_paid_ex_tax_gbp';
+    const exTaxGbp = parseFloat(m[exTaxKey]) || summaryTotal;
+    const taxLiability = parseFloat(m.total_tax_amount_gbp) || 0;
+
+    let totalGbp = summaryTotal;
+    if (reportTaxFilter === 'ex-tax') {
+      totalGbp = exTaxGbp;
+    } else if (reportTaxFilter === 'with-liability') {
+      totalGbp = exTaxGbp + taxLiability;
+    }
+    setReportMetricValue('mc-rpt-gbp', fmtGBP(totalGbp));
+    setReportMetricValue('mc-rpt-gbp-only', fmtGBP(gbpOnly));
+    setReportMetricValue('mc-rpt-hkd', 'HK$' + fmtAmt(totalHkd));
+    const hkdSub = document.querySelector('#mc-rpt-hkd')?.closest('.mc')?.querySelector('.mc-sub');
+    if (hkdSub) hkdSub.textContent = `≈ ${fmtGBP(hkdInGbp)} in GBP`;
+    setReportMetricValue('mc-rpt-count', String(count));
+
+    const gbpLabel = document.querySelector('#mc-rpt-gbp')?.closest('.mc')?.querySelector('.mc-label');
+    if (gbpLabel) gbpLabel.textContent = reportBasis === 'used' ? 'TOTAL (USED)' : 'TOTAL (GBP)';
+  } catch (e) {
+    console.error('renderReportMetrics error:', e);
   }
 }
 
@@ -2892,7 +3122,7 @@ function setReportBreakdownMode(mode, button) {
   button.closest('.seg-control')?.querySelectorAll('.seg-btn').forEach(btn => btn.classList.remove('active'));
   button.classList.add('active');
   const currToggle = document.getElementById('rpt-currency-toggle');
-  if (currToggle) currToggle.style.display = mode === 'classification' ? 'none' : '';
+  if (currToggle) currToggle.style.display = '';
   const colHeader = document.getElementById('rpt-breakdown-col-header');
   if (colHeader) colHeader.textContent = mode === 'classification' ? 'Classification' : 'Category';
   if (currentReportsData) refreshReportBreakdown();
@@ -2900,29 +3130,178 @@ function setReportBreakdownMode(mode, button) {
 
 function refreshReportBreakdown() {
   if (reportBreakdownMode === 'classification') {
-    const classRows = buildClassificationRows(currentReportsData.groupCategorySpending || []);
-    renderCategoryChart(classRows);
-    renderReportCategoryTable('cat-table-body', classRows, 'TOTAL');
+    const gcs = reportBasis === 'used'
+      ? (currentReportsData.groupCategorySpendingUsed || currentReportsData.groupCategorySpending || [])
+      : (currentReportsData.groupCategorySpending || []);
+    const classRows = buildClassificationRows(filterTaxFromGroupCategorySpending(gcs), reportCurrency);
+    if (reportTaxFilter === 'with-liability') {
+      const m = currentReportsData.dashMetrics || {};
+      const taxLiability = parseFloat(m.total_tax_amount_gbp) || 0;
+      if (taxLiability > 0) {
+        const taxColor = classificationData.find(c => c.name === 'Tax')?.color || '#C47A7A';
+        classRows.push({
+          category: 'Tax Liability',
+          amount_gbp: String(taxLiability.toFixed(2)),
+          amount_hkd: '0',
+          color: taxColor,
+          subcategories: [{ category: 'Tax Liability', amount: taxLiability }],
+        });
+        classRows.sort((a, b) => parseFloat(b.amount_gbp) - parseFloat(a.amount_gbp));
+      }
+    }
+    renderClassificationChart(classRows);
+    renderClassificationTable(classRows);
   } else {
-    renderCategoryChart(currentReportsData.categorySpending);
-    renderReportCategoryTable('cat-table-body', currentReportsData.categorySpending, reportCurrency);
+    let catRows = filterTaxFromCategorySpending(currentReportsData.categorySpending);
+    if (reportTaxFilter === 'with-liability') {
+      const m = currentReportsData.dashMetrics || {};
+      const taxLiability = parseFloat(m.total_tax_amount_gbp) || 0;
+      if (taxLiability > 0) {
+        catRows = catRows.filter(r => {
+          const c = (r.category || '').toLowerCase();
+          return c !== 'tax' && c !== 'tax payment';
+        });
+        catRows.push({ category: 'Tax Liability', amount_gbp: String(taxLiability.toFixed(2)), amount_hkd: '0' });
+        catRows.sort((a, b) => (parseFloat(b.amount_gbp) || 0) - (parseFloat(a.amount_gbp) || 0));
+      }
+    }
+    renderCategoryChart(catRows);
+    renderReportCategoryTable('cat-table-body', catRows, reportCurrency);
   }
 }
 
-function buildClassificationRows(gcsRows) {
-  const totals = {};
-  const colors = {};
-  for (const row of gcsRows) {
-    const sg = getClassification(row.group || '', row.category || '');
-    totals[sg] = (totals[sg] || 0) + (parseFloat(row.amount_gbp) || 0);
-    if (!colors[sg]) {
-      const cg = classificationData.find(c => c.name === sg);
-      colors[sg] = cg ? cg.color : '#8492a6';
+function renderClassificationChart(classRows) {
+  const barWrap = document.getElementById('cat-bar-wrap');
+  const pieWrap = document.getElementById('cat-pie-wrap');
+  const canvas = document.getElementById(reportCategoryChartType === 'pie' ? 'cat-pie' : 'hbar');
+  barWrap.style.display = reportCategoryChartType === 'bar' ? '' : 'none';
+  pieWrap.style.display = reportCategoryChartType === 'pie' ? '' : 'none';
+  if (reportCategoryChart) reportCategoryChart.destroy();
+  if (!classRows.length) return;
+
+  if (reportCategoryChartType === 'pie') {
+    reportCategoryChart = new Chart(canvas, {
+      type: 'pie',
+      data: {
+        labels: classRows.map(r => r.category),
+        datasets: [{ data: classRows.map(r => parseFloat(r.amount_gbp)), backgroundColor: classRows.map(r => r.color), borderWidth: 1, borderColor: '#fff' }],
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'right' } } },
+    });
+    return;
+  }
+
+  const labels = classRows.map(r => r.category);
+  if (barWrap) barWrap.style.height = Math.max(200, labels.length * 36) + 'px';
+
+  const maxSubs = Math.max(...classRows.map(r => r.subcategories.length));
+  const datasets = [];
+  for (let si = 0; si < maxSubs; si++) {
+    datasets.push({
+      label: '',
+      data: classRows.map(r => si < r.subcategories.length ? r.subcategories[si].amount : 0),
+      backgroundColor: classRows.map(r => {
+        if (si >= r.subcategories.length) return 'transparent';
+        const count = r.subcategories.length;
+        const lightness = 0.15 + (count > 1 ? (si / (count - 1)) * 0.45 : 0);
+        return shadeColor(r.color, lightness);
+      }),
+      borderRadius: 2,
+      _subLabels: classRows.map(r => si < r.subcategories.length ? r.subcategories[si].category : ''),
+    });
+  }
+
+  reportCategoryChart = new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'y',
+      scales: {
+        x: { stacked: true, grid: { color: '#f0f1f5' }, ticks: { callback: v => reportCurrency === 'HKD' ? 'HK$' + Math.round(v) : '£' + Math.round(v) } },
+        y: { stacked: true, grid: { display: false } },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.raw <= 0) return '';
+              const subLabel = ctx.dataset._subLabels?.[ctx.dataIndex] || '';
+              return subLabel ? `${subLabel}: ${fmtGBP(ctx.raw)}` : fmtGBP(ctx.raw);
+            },
+          },
+          filter: item => item.raw > 0,
+        },
+      },
+    },
+  });
+}
+
+function renderClassificationTable(classRows) {
+  const tbody = document.getElementById('cat-table-body');
+  if (!tbody) return;
+  const fmt = reportCurrency === 'HKD' ? v => 'HK$' + fmtAmt(v) : fmtGBP;
+  const total = classRows.reduce((s, r) => s + (parseFloat(r.amount_gbp) || 0), 0);
+  let html = '';
+  classRows.forEach((row, i) => {
+    const amt = parseFloat(row.amount_gbp) || 0;
+    const pct = total > 0 ? ((amt / total) * 100).toFixed(1) : '0.0';
+    html += `<tr class="clf-row" style="cursor:pointer" onclick="toggleClassificationDetail(${i})">
+      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${row.color};margin-right:6px"></span>${row.category} <span style="color:#8492a6;font-size:11px">▸</span></td>
+      <td>${fmt(amt)}</td>
+      <td>${pct}%</td>
+    </tr>`;
+    for (const sub of row.subcategories) {
+      const subPct = total > 0 ? ((sub.amount / total) * 100).toFixed(1) : '0.0';
+      html += `<tr class="clf-detail clf-detail-${i}" style="display:none;background:#f8f9fb"><td style="padding-left:32px">${sub.category}</td><td>${fmt(sub.amount)}</td><td>${subPct}%</td></tr>`;
     }
+  });
+  html += `<tr style="font-weight:700;border-top:2px solid #d3dce6"><td>Total</td><td>${fmt(total)}</td><td>100%</td></tr>`;
+  tbody.innerHTML = html;
+}
+
+function toggleClassificationDetail(index) {
+  const details = document.querySelectorAll(`.clf-detail-${index}`);
+  if (!details.length) return;
+  const isHidden = details[0].style.display === 'none';
+  details.forEach(d => d.style.display = isHidden ? '' : 'none');
+  const parentRow = details[0].previousElementSibling;
+  const arrow = parentRow?.querySelector('span:last-child') ||
+    document.querySelector(`.clf-row[onclick="toggleClassificationDetail(${index})"] span:last-child`);
+  if (arrow) arrow.textContent = isHidden ? '▾' : '▸';
+}
+
+function buildClassificationRows(gcsRows, currency) {
+  let filtered = gcsRows;
+  if (currency === 'HKD') {
+    filtered = gcsRows.filter(r => parseFloat(r.amount_hkd) > 0);
+  } else if (currency === 'GBP') {
+    filtered = gcsRows.filter(r => !r.amount_hkd || parseFloat(r.amount_hkd) <= 0);
+  }
+  const key = currency === 'HKD' ? 'amount_hkd' : 'amount_gbp';
+  const groups = {};
+  for (const row of filtered) {
+    const sg = getClassification(row.group || '', row.category || '');
+    if (!groups[sg]) groups[sg] = { total: 0, categories: [] };
+    const amt = parseFloat(row[key]) || 0;
+    groups[sg].total += amt;
+    groups[sg].categories.push({ category: row.category || 'Other', amount: amt });
   }
   return classificationData
-    .filter(cg => (totals[cg.name] || 0) > 0)
-    .map(cg => ({ category: cg.name, amount_gbp: String(totals[cg.name].toFixed(2)), amount_hkd: '0', color: cg.color }))
+    .filter(cg => (groups[cg.name]?.total || 0) > 0)
+    .map(cg => {
+      const g = groups[cg.name];
+      g.categories.sort((a, b) => b.amount - a.amount);
+      return {
+        category: cg.name,
+        amount_gbp: String(g.total.toFixed(2)),
+        amount_hkd: '0',
+        color: cg.color,
+        subcategories: g.categories,
+      };
+    })
     .sort((a, b) => parseFloat(b.amount_gbp) - parseFloat(a.amount_gbp));
 }
 
@@ -2944,7 +3323,7 @@ function switchTrend(type, button) {
   reportTrendChartType = type;
   button.closest('.seg-control')?.querySelectorAll('.seg-btn').forEach(btn => btn.classList.remove('active'));
   button.classList.add('active');
-  if (currentReportsData) renderTrendChart(currentReportsData.monthlyTrend);
+  if (currentReportsData) renderTrendChart(currentReportsData.trendData, currentReportsData.trendType);
 }
 
 // ── Settings page ──
@@ -3900,7 +4279,7 @@ function renderMonthlyOverviewTrend(months) {
 
   const datasets = [
     {
-      label: 'Gross Income',
+      label: 'Income',
       data: activeMonths.map(m => parseFloat(m.metrics.gross_income_gbp) || 0),
       borderColor: '#27ae60',
       backgroundColor: '#27ae6020',
